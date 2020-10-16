@@ -3,6 +3,7 @@ using Microsoft.Xrm.Sdk;
 using Microsoft.Xrm.Sdk.Messages;
 using Microsoft.Xrm.Sdk.Metadata;
 using Microsoft.Xrm.Sdk.Query;
+
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -123,12 +124,21 @@ namespace DG.Tools.XrmMockup.Metadata
                 return new List<MetaPlugin>();
             }
 
-            var pluginQuery = new QueryExpression("sdkmessageprocessingstep")
+            var pluginQuery = new QueryExpression("plugintype")
             {
-                ColumnSet = new ColumnSet("eventhandler", "stage", "mode", "rank", "sdkmessageid", "filteringattributes", "name"),
-                Criteria = new FilterExpression()
+                ColumnSet = new ColumnSet("plugintypeid", "typename")
             };
-            pluginQuery.Criteria.AddCondition("statecode", ConditionOperator.Equal, 0);
+
+            var sdkmessageprocessingstepQuery = new LinkEntity("plugintype", "sdkmessageprocessingstep", "plugintypeid", "plugintypeid", JoinOperator.Inner)
+            {
+                Columns = new ColumnSet("plugintypeid", "stage", "mode", "rank", "sdkmessageid", "filteringattributes", "name", "sdkmessageprocessingstepid"),
+                EntityAlias = "sdkmessageprocessingstep",
+                LinkCriteria = new FilterExpression()
+            };
+
+            sdkmessageprocessingstepQuery.LinkCriteria.AddCondition("statecode", ConditionOperator.Equal, 0);
+
+            pluginQuery.LinkEntities.Add(sdkmessageprocessingstepQuery);
 
             var sdkMessageFilterQuery = new LinkEntity("sdkmessageprocessingstep", "sdkmessagefilter", "sdkmessagefilterid", "sdkmessagefilterid", JoinOperator.Inner)
             {
@@ -136,14 +146,14 @@ namespace DG.Tools.XrmMockup.Metadata
                 EntityAlias = "sdkmessagefilter",
                 LinkCriteria = new FilterExpression()
             };
-            pluginQuery.LinkEntities.Add(sdkMessageFilterQuery);
+            sdkmessageprocessingstepQuery.LinkEntities.Add(sdkMessageFilterQuery);
 
             var solutionComponentQuery = new LinkEntity("sdkmessageprocessingstep", "solutioncomponent", "sdkmessageprocessingstepid", "objectid", JoinOperator.Inner)
             {
                 Columns = new ColumnSet(),
                 LinkCriteria = new FilterExpression()
             };
-            pluginQuery.LinkEntities.Add(solutionComponentQuery);
+            sdkmessageprocessingstepQuery.LinkEntities.Add(solutionComponentQuery);
 
             var solutionQuery = new LinkEntity("solutioncomponent", "solution", "solutionid", "solutionid", JoinOperator.Inner)
             {
@@ -152,7 +162,6 @@ namespace DG.Tools.XrmMockup.Metadata
             };
             solutionQuery.LinkCriteria.AddCondition("uniquename", ConditionOperator.In, solutions);
             solutionComponentQuery.LinkEntities.Add(solutionQuery);
-
 
             var imagesQuery = new QueryExpression
             {
@@ -191,27 +200,29 @@ namespace DG.Tools.XrmMockup.Metadata
 
             foreach (var plugin in service.RetrieveMultiple(pluginQuery).Entities)
             {
-                var metaPlugin = new MetaPlugin()
+                var metaPlugin = new MetaPlugin
                 {
-                    Name = plugin.GetAttributeValue<string>("name"),
-                    Rank = plugin.GetAttributeValue<int>("rank"),
-                    FilteredAttributes = plugin.GetAttributeValue<string>("filteringattributes"),
-                    Mode = plugin.GetAttributeValue<OptionSetValue>("mode").Value,
-                    Stage = plugin.GetAttributeValue<OptionSetValue>("stage").Value,
-                    MessageName = plugin.GetAttributeValue<EntityReference>("sdkmessageid").Name,
-                    AssemblyName = plugin.GetAttributeValue<EntityReference>("eventhandler").Name,
-                    PrimaryEntity = plugin.GetAttributeValue<AliasedValue>("sdkmessagefilter.primaryobjecttypecode").Value as string,
+                    StepId = (Guid)plugin.GetAttributeValue<AliasedValue>("sdkmessageprocessingstep.sdkmessageprocessingstepid").Value,
+                    Name = plugin.GetAttributeValue<AliasedValue>("sdkmessageprocessingstep.name")?.Value as string,
+                    Rank = (int)(plugin.GetAttributeValue<AliasedValue>("sdkmessageprocessingstep.rank")?.Value),
+                    FilteredAttributes = plugin.GetAttributeValue<AliasedValue>("sdkmessageprocessingstep.filteringattributes")?.Value as string,
+                    Mode = (plugin.GetAttributeValue<AliasedValue>("sdkmessageprocessingstep.mode").Value as OptionSetValue).Value,
+                    Stage = (plugin.GetAttributeValue<AliasedValue>("sdkmessageprocessingstep.stage").Value as OptionSetValue).Value,
+                    MessageName = (plugin.GetAttributeValue<AliasedValue>("sdkmessageprocessingstep.sdkmessageid")?.Value as EntityReference).Name,
+                    AssemblyName = plugin.GetAttributeValue<string>("typename"),
+                    PrimaryEntity = plugin.GetAttributeValue<AliasedValue>("sdkmessagefilter.primaryobjecttypecode")?.Value as string,
                     Images = images.Entities
-                        .Where(x => x.GetAttributeValue<EntityReference>("sdkmessageprocessingstepid").Id == plugin.Id)
-                        .Select(x => new MetaImage
-                        {
-                            Attributes = x.GetAttributeValue<string>("attributes"),
-                            EntityAlias = x.GetAttributeValue<string>("entityalias"),
-                            ImageType = x.GetAttributeValue<OptionSetValue>("imagetype").Value,
-                            Name = x.GetAttributeValue<string>("name")
-                        })
-                        .ToList()
+                    .Where(x => x.GetAttributeValue<EntityReference>("sdkmessageprocessingstepid").Id == (Guid)plugin.GetAttributeValue<AliasedValue>("sdkmessageprocessingstep.sdkmessageprocessingstepid").Value)
+                    .Select(x => new MetaImage
+                    {
+                        Attributes = x.GetAttributeValue<string>("attributes"),
+                        EntityAlias = x.GetAttributeValue<string>("entityalias"),
+                        ImageType = x.GetAttributeValue<OptionSetValue>("imagetype").Value,
+                        Name = x.GetAttributeValue<string>("name")
+                    })
+                    .ToList()
                 };
+
                 plugins.Add(metaPlugin);
             }
 
@@ -240,7 +251,6 @@ namespace DG.Tools.XrmMockup.Metadata
                 .First(e => e.Id.Equals(baseOrganizationId));
         }
 
-
         internal IEnumerable<Entity> GetBusinessUnits()
         {
             var query = new QueryExpression("businessunit")
@@ -249,7 +259,6 @@ namespace DG.Tools.XrmMockup.Metadata
             };
             return service.RetrieveMultiple(query).Entities;
         }
-
 
         private IEnumerable<Guid> GetEntityComponentIdsFromSolution(string solutionName)
         {
@@ -343,7 +352,7 @@ namespace DG.Tools.XrmMockup.Metadata
             return logicalNames;
         }
 
-        //The solutionid for Workflowentities points to the active solution  
+        //The solutionid for Workflowentities points to the active solution
         //By getting the workflows from the active solution all the workflows from the targeted solution are included.
         internal Guid? GetActiveSolution()
         {
@@ -410,10 +419,11 @@ namespace DG.Tools.XrmMockup.Metadata
             };
             var rolelist = QueryPaging(roleQuery);
             // Joins
-            // rpr <- roleprivileges inner join roles
-            var roleprivilegeIJrole =
+            // rpr <- roleprivileges left outer join roles
+            var roleprivilegeLOJrole =
                 from roleprivilege in rolePrivileges
-                join role in rolelist on ((Guid)roleprivilege["roleid"]) equals ((EntityReference)role["parentrootroleid"]).Id
+                join role in rolelist on ((Guid)roleprivilege["roleid"]) equals ((EntityReference)role["parentrootroleid"]).Id into res
+                from role in res.DefaultIfEmpty()
                 where ((EntityReference)role["businessunitid"]).Id.Equals(rootBUId) &&
                     (int)roleprivilege["privilegedepthmask"] != 0
                 select new { roleprivilege, role };
@@ -428,7 +438,7 @@ namespace DG.Tools.XrmMockup.Metadata
             // entities <- pp left outer join rpr
             var entities =
                 from pp in privilegesLOJprivilegeOTCs
-                join rpr in roleprivilegeIJrole on ((Guid)pp.privilege["privilegeid"]) equals ((Guid)rpr.roleprivilege["privilegeid"]) into res
+                join rpr in roleprivilegeLOJrole on ((Guid)pp.privilege["privilegeid"]) equals ((Guid)rpr.roleprivilege["privilegeid"]) into res
                 from rpr in res.DefaultIfEmpty()
                 select new { pp, rpr };
 
@@ -516,7 +526,6 @@ namespace DG.Tools.XrmMockup.Metadata
                 PrivilegeDepth = PrivilegeDepthToEnum((int)e2["privilegedepthmask"])
             };
             return rp;
-
         }
         private RetrieveEntityRequest GetEntityMetadataRequest(string logicalName)
         {
@@ -603,6 +612,5 @@ namespace DG.Tools.XrmMockup.Metadata
 
             return dict;
         }
-
     }
 }

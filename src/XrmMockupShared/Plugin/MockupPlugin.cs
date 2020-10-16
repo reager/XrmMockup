@@ -1,64 +1,75 @@
-﻿
+﻿using Microsoft.Xrm.Sdk;
+
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Linq;
-using System.ServiceModel;
 using System.Linq.Expressions;
-using Microsoft.Xrm.Sdk;
+using System.ServiceModel;
 
-namespace DG.Tools.XrmMockup {
+namespace DG.Tools.XrmMockup
+{
+    using System.Reflection;
 
+    using ExtendedStepConfig = System.Tuple<int, int, string, int, string, string>;
+    using ImageTuple = System.Tuple<string, string, int, string>;
     // StepConfig           : className, PluginExecutionStage, PluginEventOperation, LogicalName
     // ExtendedStepConfig   : PluginDeployment, PluginExecutionMode, Name, ExecutionOrder, FilteredAttributes, UserContext
     // ImageTuple           : Name, EntityAlias, PluginImageType, Attributes
-    using StepConfig = System.Tuple<string, int, string, string>;
-    using ExtendedStepConfig = System.Tuple<int, int, string, int, string, string>;
-    using ImageTuple = System.Tuple<string, string, int, string>;
-    using System.Reflection;
+    using StepConfig = System.Tuple<Guid, string, int, string, string>;
 
     /// <summary>
     /// Base class for all Plugins.
-    /// </summary>    
-    public class MockupPlugin : IPlugin {
-        protected class LocalPluginContext {
-            internal IServiceProvider ServiceProvider {
+    /// </summary>
+    public class MockupPlugin : IPlugin
+    {
+        protected class LocalPluginContext
+        {
+            internal IServiceProvider ServiceProvider
+            {
                 get;
 
                 private set;
             }
 
-            internal IOrganizationService OrganizationService {
+            internal IOrganizationService OrganizationService
+            {
                 get;
 
                 private set;
             }
 
             // Delegate A/S added:
-            internal IOrganizationService OrganizationAdminService {
+            internal IOrganizationService OrganizationAdminService
+            {
                 get;
 
                 private set;
             }
 
-            internal IPluginExecutionContext PluginExecutionContext {
+            internal IPluginExecutionContext PluginExecutionContext
+            {
                 get;
 
                 private set;
             }
 
-            internal ITracingService TracingService {
+            internal ITracingService TracingService
+            {
                 get;
 
                 private set;
             }
 
-            private LocalPluginContext() {
+            private LocalPluginContext()
+            {
             }
 
-            internal LocalPluginContext(IServiceProvider serviceProvider) {
-                if (serviceProvider == null) {
+            internal LocalPluginContext(IServiceProvider serviceProvider)
+            {
+                if (serviceProvider == null)
+                {
                     throw new ArgumentNullException("serviceProvider");
                 }
 
@@ -78,14 +89,19 @@ namespace DG.Tools.XrmMockup {
                 this.OrganizationAdminService = factory.CreateOrganizationService(null);
             }
 
-            internal void Trace(string message) {
-                if (string.IsNullOrWhiteSpace(message) || this.TracingService == null) {
+            internal void Trace(string message)
+            {
+                if (string.IsNullOrWhiteSpace(message) || this.TracingService == null)
+                {
                     return;
                 }
 
-                if (this.PluginExecutionContext == null) {
+                if (this.PluginExecutionContext == null)
+                {
                     this.TracingService.Trace(message);
-                } else {
+                }
+                else
+                {
                     this.TracingService.Trace(
                         "{0}, Correlation Id: {1}, Initiating User: {2}",
                         message,
@@ -99,12 +115,15 @@ namespace DG.Tools.XrmMockup {
 
         /// <summary>
         /// Gets the List of events that the plug-in should fire for. Each List
-        /// Item is a <see cref="System.Tuple"/> containing the Pipeline Stage, Message and (optionally) the Primary Entity. 
+        /// Item is a <see cref="System.Tuple"/> containing the Pipeline Stage, Message and (optionally) the Primary Entity.
         /// In addition, the fourth parameter provide the delegate to invoke on a matching registration.
         /// </summary>
-        protected Collection<Tuple<int, string, string, Action<LocalPluginContext>>> RegisteredEvents {
-            get {
-                if (this.registeredEvents == null) {
+        protected Collection<Tuple<int, string, string, Action<LocalPluginContext>>> RegisteredEvents
+        {
+            get
+            {
+                if (this.registeredEvents == null)
+                {
                     this.registeredEvents = new Collection<Tuple<int, string, string, Action<LocalPluginContext>>>();
                 }
 
@@ -116,7 +135,8 @@ namespace DG.Tools.XrmMockup {
         /// Gets or sets the name of the child class.
         /// </summary>
         /// <value>The name of the child class.</value>
-        protected string ChildClassName {
+        protected string ChildClassName
+        {
             get;
 
             private set;
@@ -126,24 +146,26 @@ namespace DG.Tools.XrmMockup {
         /// Initializes a new instance of the <see cref="MockupPlugin"/> class.
         /// </summary>
         /// <param name="childClassName">The <see cref="Type"/> of the derived class.</param>
-        internal MockupPlugin(Type childClassName) {
+        internal MockupPlugin(Type childClassName)
+        {
             this.ChildClassName = childClassName.ToString();
         }
-
 
         /// <summary>
         /// Executes the plug-in.
         /// </summary>
         /// <param name="serviceProvider">The service provider.</param>
         /// <remarks>
-        /// For improved performance, Microsoft Dynamics CRM caches plug-in instances. 
-        /// The plug-in's Execute method should be written to be stateless as the constructor 
-        /// is not called for every invocation of the plug-in. Also, multiple system threads 
-        /// could execute the plug-in at the same time. All per invocation state information 
+        /// For improved performance, Microsoft Dynamics CRM caches plug-in instances.
+        /// The plug-in's Execute method should be written to be stateless as the constructor
+        /// is not called for every invocation of the plug-in. Also, multiple system threads
+        /// could execute the plug-in at the same time. All per invocation state information
         /// is stored in the context. This means that you should not use global variables in plug-ins.
         /// </remarks>
-        public void Execute(IServiceProvider serviceProvider) {
-            if (serviceProvider == null) {
+        public void Execute(IServiceProvider serviceProvider)
+        {
+            if (serviceProvider == null)
+            {
                 throw new ArgumentNullException("serviceProvider");
             }
 
@@ -152,7 +174,8 @@ namespace DG.Tools.XrmMockup {
 
             localcontext.Trace(string.Format(CultureInfo.InvariantCulture, "Entered {0}.Execute()", this.ChildClassName));
 
-            try {
+            try
+            {
                 // Iterate over all of the expected registered events to ensure that the plugin
                 // has been invoked by an expected event
                 // For any given plug-in event at an instance in time, we would expect at most 1 result to match.
@@ -165,7 +188,8 @@ namespace DG.Tools.XrmMockup {
                      )
                      select a.Item4).FirstOrDefault();
 
-                if (entityAction != null) {
+                if (entityAction != null)
+                {
                     localcontext.Trace(string.Format(
                         CultureInfo.InvariantCulture,
                         "{0} is firing for Entity: {1}, Message: {2}",
@@ -173,9 +197,12 @@ namespace DG.Tools.XrmMockup {
                         localcontext.PluginExecutionContext.PrimaryEntityName,
                         localcontext.PluginExecutionContext.MessageName));
 
-                    try {
+                    try
+                    {
                         entityAction.Invoke(localcontext);
-                    } catch (TargetInvocationException e) {
+                    }
+                    catch (TargetInvocationException e)
+                    {
                         throw e.InnerException;
                     }
 
@@ -183,16 +210,19 @@ namespace DG.Tools.XrmMockup {
                     // guard against multiple executions.
                     return;
                 }
-            } catch (FaultException<OrganizationServiceFault> e) {
+            }
+            catch (FaultException<OrganizationServiceFault> e)
+            {
                 localcontext.Trace(string.Format(CultureInfo.InvariantCulture, "Exception: {0}", e.ToString()));
 
                 // Handle the exception.
                 throw;
-            } finally {
+            }
+            finally
+            {
                 localcontext.Trace(string.Format(CultureInfo.InvariantCulture, "Exiting {0}.Execute()", this.ChildClassName));
             }
         }
-
 
         // Delegate A/S added:
         /// <summary>
@@ -202,16 +232,18 @@ namespace DG.Tools.XrmMockup {
         /// - The Pipeline Stage
         /// - The Event Operation
         /// - Logical Entity Name (or empty for all)
-        /// This will allow to instantiate each plug-in and iterate through the 
-        /// PluginProcessingSteps in order to sync the code repository with 
+        /// This will allow to instantiate each plug-in and iterate through the
+        /// PluginProcessingSteps in order to sync the code repository with
         /// MS CRM without have to use any extra layer to perform this operation
         /// </summary>
         /// <returns></returns>
-        /// 
+        ///
 
-        public IEnumerable<Tuple<string, int, string, string>> PluginProcessingSteps() {
+        public IEnumerable<Tuple<string, int, string, string>> PluginProcessingSteps()
+        {
             var className = this.ChildClassName;
-            foreach (var events in this.RegisteredEvents) {
+            foreach (var events in this.RegisteredEvents)
+            {
                 yield return new Tuple<string, int, string, string>
                     (className, events.Item1, events.Item2, events.Item3);
             }
@@ -219,57 +251,69 @@ namespace DG.Tools.XrmMockup {
 
         #region Additional helper methods
 
-        protected static T GetImage<T>(LocalPluginContext context, PluginImageType PluginImageType, string name) where T : Entity {
+        protected static T GetImage<T>(LocalPluginContext context, PluginImageType PluginImageType, string name) where T : Entity
+        {
             EntityImageCollection collection = null;
-            if (PluginImageType == PluginImageType.PreImage) {
+            if (PluginImageType == PluginImageType.PreImage)
+            {
                 collection = context.PluginExecutionContext.PreEntityImages;
-            } else if (PluginImageType == PluginImageType.PostImage) {
+            }
+            else if (PluginImageType == PluginImageType.PostImage)
+            {
                 collection = context.PluginExecutionContext.PostEntityImages;
             }
 
             Entity entity;
-            if (collection != null && collection.TryGetValue(name, out entity)) {
+            if (collection != null && collection.TryGetValue(name, out entity))
+            {
                 return entity.ToEntity<T>();
-            } else {
+            }
+            else
+            {
                 return null;
             }
         }
 
-        protected static T GetImage<T>(LocalPluginContext context, PluginImageType PluginImageType) where T : Entity {
+        protected static T GetImage<T>(LocalPluginContext context, PluginImageType PluginImageType) where T : Entity
+        {
             return GetImage<T>(context, PluginImageType, PluginImageType.ToString());
         }
 
-        protected static T GetPreImage<T>(LocalPluginContext context, string name = "PreImage") where T : Entity {
+        protected static T GetPreImage<T>(LocalPluginContext context, string name = "PreImage") where T : Entity
+        {
             return GetImage<T>(context, PluginImageType.PreImage, name);
         }
 
-        protected static T GetPostImage<T>(LocalPluginContext context, string name = "PostImage") where T : Entity {
+        protected static T GetPostImage<T>(LocalPluginContext context, string name = "PostImage") where T : Entity
+        {
             return GetImage<T>(context, PluginImageType.PostImage, name);
         }
 
-        #endregion
-
+        #endregion Additional helper methods
 
         #region PluginStepConfig retrieval
+
         /// <summary>
         /// Made by Delegate A/S
         /// Get the plugin step configurations.
         /// </summary>
         /// <returns>List of steps</returns>
-        public IEnumerable<Tuple<StepConfig, ExtendedStepConfig, IEnumerable<ImageTuple>>> PluginProcessingStepConfigs() {
+        public IEnumerable<Tuple<StepConfig, ExtendedStepConfig, IEnumerable<ImageTuple>>> PluginProcessingStepConfigs()
+        {
             var className = this.ChildClassName;
-            foreach (var config in this.PluginStepConfigs) {
+            foreach (var config in this.PluginStepConfigs)
+            {
                 yield return
                     new Tuple<StepConfig, ExtendedStepConfig, IEnumerable<ImageTuple>>(
-                        new StepConfig(className, config._PluginExecutionStage, config._PluginEventOperation, config._LogicalName),
+                        new StepConfig(Guid.Empty, className, config._PluginExecutionStage, config._PluginEventOperation, config._LogicalName),
                         new ExtendedStepConfig(config._PluginDeployment, config._PluginExecutionMode, config._Name, config._ExecutionOrder, config._FilteredAttributes, config._UserContext.ToString()),
                         config.GetImages());
             }
         }
 
-
         protected PluginStepConfig<Entity> RegisterPluginStep(
-            string logicalName, PluginEventOperation PluginEventOperation, PluginExecutionStage PluginExecutionStage, Action<LocalPluginContext> action){
+            string logicalName, PluginEventOperation PluginEventOperation, PluginExecutionStage PluginExecutionStage, Action<LocalPluginContext> action)
+        {
             PluginStepConfig<Entity> stepConfig = new PluginStepConfig<Entity>(logicalName, PluginEventOperation, PluginExecutionStage);
             this.PluginStepConfigs.Add((IPluginStepConfig)stepConfig);
 
@@ -283,22 +327,26 @@ namespace DG.Tools.XrmMockup {
             return stepConfig;
         }
 
-
         private Collection<IPluginStepConfig> pluginConfigs;
-        private Collection<IPluginStepConfig> PluginStepConfigs {
-            get {
-                if (this.pluginConfigs == null) {
+        private Collection<IPluginStepConfig> PluginStepConfigs
+        {
+            get
+            {
+                if (this.pluginConfigs == null)
+                {
                     this.pluginConfigs = new Collection<IPluginStepConfig>();
                 }
                 return this.pluginConfigs;
             }
         }
-        #endregion
 
+        #endregion PluginStepConfig retrieval
     }
 
     #region PluginStepConfig made by Delegate A/S
-    interface IPluginStepConfig {
+
+    interface IPluginStepConfig
+    {
         string _LogicalName { get; }
         string _PluginEventOperation { get; }
         int _PluginExecutionStage { get; }
@@ -314,10 +362,11 @@ namespace DG.Tools.XrmMockup {
 
     /// <summary>
     /// Made by Delegate A/S
-    /// Class to encapsulate the various configurations that can be made 
+    /// Class to encapsulate the various configurations that can be made
     /// to a plugin step.
     /// </summary>
-    public class PluginStepConfig<T> : IPluginStepConfig where T : Entity {
+    public class PluginStepConfig<T> : IPluginStepConfig where T : Entity
+    {
         public string _LogicalName { get; private set; }
         public string _PluginEventOperation { get; private set; }
         public int _PluginExecutionStage { get; private set; }
@@ -331,15 +380,17 @@ namespace DG.Tools.XrmMockup {
         public Collection<PluginStepImage> _Images = new Collection<PluginStepImage>();
         public Collection<string> _FilteredAttributesCollection = new Collection<string>();
 
-        public string _FilteredAttributes {
-            get {
+        public string _FilteredAttributes
+        {
+            get
+            {
                 if (this._FilteredAttributesCollection.Count == 0) return null;
                 return string.Join(",", this._FilteredAttributesCollection).ToLower();
             }
         }
 
-
-        public PluginStepConfig(string logicalName, PluginEventOperation PluginEventOperation, PluginExecutionStage PluginExecutionStage) {
+        public PluginStepConfig(string logicalName, PluginEventOperation PluginEventOperation, PluginExecutionStage PluginExecutionStage)
+        {
             this._LogicalName = logicalName;
             this._PluginEventOperation = PluginEventOperation.ToString();
             this._PluginExecutionStage = (int)PluginExecutionStage;
@@ -349,60 +400,73 @@ namespace DG.Tools.XrmMockup {
             this._UserContext = Guid.Empty;
         }
 
-        private PluginStepConfig<T> AddFilteredAttribute(Expression<Func<T, object>> lambda) {
+        private PluginStepConfig<T> AddFilteredAttribute(Expression<Func<T, object>> lambda)
+        {
             this._FilteredAttributesCollection.Add(GetMemberName(lambda));
             return this;
         }
 
-        public PluginStepConfig<T> AddFilteredAttributes(params Expression<Func<T, object>>[] lambdas) {
+        public PluginStepConfig<T> AddFilteredAttributes(params Expression<Func<T, object>>[] lambdas)
+        {
             foreach (var lambda in lambdas) this.AddFilteredAttribute(lambda);
             return this;
         }
 
-        public PluginStepConfig<T> SetPluginDeployment(PluginDeployment PluginDeployment) {
+        public PluginStepConfig<T> SetPluginDeployment(PluginDeployment PluginDeployment)
+        {
             this._PluginDeployment = (int)PluginDeployment;
             return this;
         }
 
-        public PluginStepConfig<T> SetExecutionMode(PluginExecutionMode PluginExecutionMode) {
+        public PluginStepConfig<T> SetExecutionMode(PluginExecutionMode PluginExecutionMode)
+        {
             this._PluginExecutionMode = (int)PluginExecutionMode;
             return this;
         }
 
-        public PluginStepConfig<T> SetName(string name) {
+        public PluginStepConfig<T> SetName(string name)
+        {
             this._Name = name;
             return this;
         }
 
-        public PluginStepConfig<T> SetExecutionOrder(int executionOrder) {
+        public PluginStepConfig<T> SetExecutionOrder(int executionOrder)
+        {
             this._ExecutionOrder = executionOrder;
             return this;
         }
 
-        public PluginStepConfig<T> SetUserContext(Guid userContext) {
+        public PluginStepConfig<T> SetUserContext(Guid userContext)
+        {
             this._UserContext = userContext;
             return this;
         }
 
-        public PluginStepConfig<T> AddImage(PluginImageType PluginImageType) {
+        public PluginStepConfig<T> AddImage(PluginImageType PluginImageType)
+        {
             return this.AddImage(PluginImageType, null);
         }
 
-        public PluginStepConfig<T> AddImage(PluginImageType PluginImageType, params Expression<Func<T, object>>[] attributes) {
+        public PluginStepConfig<T> AddImage(PluginImageType PluginImageType, params Expression<Func<T, object>>[] attributes)
+        {
             return this.AddImage(PluginImageType.ToString(), PluginImageType.ToString(), PluginImageType, attributes);
         }
 
-        public PluginStepConfig<T> AddImage(string name, string entityAlias, PluginImageType PluginImageType) {
+        public PluginStepConfig<T> AddImage(string name, string entityAlias, PluginImageType PluginImageType)
+        {
             return this.AddImage(name, entityAlias, PluginImageType, null);
         }
 
-        public PluginStepConfig<T> AddImage(string name, string entityAlias, PluginImageType PluginImageType, params Expression<Func<T, object>>[] attributes) {
+        public PluginStepConfig<T> AddImage(string name, string entityAlias, PluginImageType PluginImageType, params Expression<Func<T, object>>[] attributes)
+        {
             this._Images.Add(new PluginStepImage(name, entityAlias, PluginImageType, attributes));
             return this;
         }
 
-        public IEnumerable<ImageTuple> GetImages() {
-            foreach (var image in this._Images) {
+        public IEnumerable<ImageTuple> GetImages()
+        {
+            foreach (var image in this._Images)
+            {
                 yield return new ImageTuple(image.Name, image.EntityAlias, image.PluginImageType, image.Attributes);
             }
         }
@@ -410,30 +474,36 @@ namespace DG.Tools.XrmMockup {
         /// <summary>
         /// Container for information about images attached to steps
         /// </summary>
-        public class PluginStepImage {
+        public class PluginStepImage
+        {
             public string Name { get; private set; }
             public string EntityAlias { get; private set; }
             public int PluginImageType { get; private set; }
             public string Attributes { get; private set; }
 
-            public PluginStepImage(string name, string entityAlias, PluginImageType PluginImageType, Expression<Func<T, object>>[] attributes) {
+            public PluginStepImage(string name, string entityAlias, PluginImageType PluginImageType, Expression<Func<T, object>>[] attributes)
+            {
                 this.Name = name;
                 this.EntityAlias = entityAlias;
                 this.PluginImageType = (int)PluginImageType;
 
-                if (attributes != null && attributes.Length > 0) {
+                if (attributes != null && attributes.Length > 0)
+                {
                     this.Attributes = string.Join(",", attributes.Select(x => PluginStepConfig<T>.GetMemberName(x))).ToLower();
-                } else {
+                }
+                else
+                {
                     this.Attributes = null;
                 }
             }
         }
 
-
-        private static string GetMemberName(Expression<Func<T, object>> lambda) {
+        private static string GetMemberName(Expression<Func<T, object>> lambda)
+        {
             MemberExpression body = lambda.Body as MemberExpression;
 
-            if (body == null) {
+            if (body == null)
+            {
                 UnaryExpression ubody = (UnaryExpression)lambda.Body;
                 body = ubody.Operand as MemberExpression;
             }
@@ -442,7 +512,8 @@ namespace DG.Tools.XrmMockup {
         }
     }
 
-    class AnyEntity : Entity {
+    class AnyEntity : Entity
+    {
         public AnyEntity() : base("") { }
     }
 
@@ -450,25 +521,29 @@ namespace DG.Tools.XrmMockup {
      * Enums to help setup plugin steps
      */
 
-    public enum PluginExecutionMode {
+    public enum PluginExecutionMode
+    {
         Synchronous = 0,
         Asynchronous = 1,
     }
 
-    public enum PluginExecutionStage {
+    public enum PluginExecutionStage
+    {
         PreValidation = 10,
         PreOperation = 20,
         PostOperation = 40,
     }
 
-    public enum PluginDeployment {
+    public enum PluginDeployment
+    {
         ServerOnly = 0,
         MicrosoftDynamicsCRMClientforOutlookOnly = 1,
         Both = 2,
     }
 
     // PluginEventOperation based on CRM 2016
-    public enum PluginEventOperation {
+    public enum PluginEventOperation
+    {
         AddItem,
         AddListMembers,
         AddMember,
@@ -571,10 +646,12 @@ namespace DG.Tools.XrmMockup {
         Win
     }
 
-    public enum PluginImageType {
+    public enum PluginImageType
+    {
         PreImage = 0,
         PostImage = 1,
         Both = 2,
     }
-    #endregion
+
+    #endregion PluginStepConfig made by Delegate A/S
 }

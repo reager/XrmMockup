@@ -1,28 +1,27 @@
-﻿using System;
+﻿using Microsoft.Xrm.Sdk;
+using Microsoft.Xrm.Sdk.Metadata;
+using Microsoft.Xrm.Sdk.Query;
+
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
-using System.Text;
-using System.Threading.Tasks;
-
-using Microsoft.Xrm.Sdk;
-using Microsoft.Xrm.Sdk.Query;
-using System.ServiceModel;
-using Microsoft.Xrm.Sdk.Metadata;
 using System.Runtime.ExceptionServices;
+using System.ServiceModel;
+
 using XrmMockupShared.Plugin;
 
-namespace DG.Tools.XrmMockup {
-
-    // StepConfig           : className, ExecutionStage, EventOperation, LogicalName
-    // ExtendedStepConfig   : Deployment, ExecutionMode, Name, ExecutionOrder, FilteredAttributes
-    // ImageTuple           : Name, EntityAlias, ImageType, Attributes
-    using StepConfig = Tuple<string, int, string, string>;
+namespace DG.Tools.XrmMockup
+{
     using ExtendedStepConfig = Tuple<int, int, string, int, string, string>;
     using ImageTuple = Tuple<string, string, int, string>;
+    // StepConfig           : StepId, className, ExecutionStage, EventOperation, LogicalName
+    // ExtendedStepConfig   : Deployment, ExecutionMode, Name, ExecutionOrder, FilteredAttributes
+    // ImageTuple           : Name, EntityAlias, ImageType, Attributes
+    using StepConfig = Tuple<Guid, string, int, string, string>;
 
-    internal class PluginManager {
-
+    internal class PluginManager
+    {
         private Dictionary<EventOperation, Dictionary<ExecutionStage, List<PluginTrigger>>> registeredPlugins;
         private Dictionary<EventOperation, Dictionary<ExecutionStage, List<PluginTrigger>>> temporaryPlugins;
         private Dictionary<EventOperation, Dictionary<ExecutionStage, List<PluginTrigger>>> registeredSystemPlugins;
@@ -31,7 +30,7 @@ namespace DG.Tools.XrmMockup {
         private Queue<PluginExecutionProvider> pendingAsyncPlugins = new Queue<PluginExecutionProvider>();
 
         private bool disableRegisteredPlugins = false;
-        
+
         // List of SystemPlugins to execute
         private List<MockupPlugin> systemPlugins = new List<MockupPlugin>
         {
@@ -59,14 +58,14 @@ namespace DG.Tools.XrmMockup {
 
                 foreach (var type in proxyTypeAssembly.GetLoadableTypes())
                 {
-                    if (type.BaseType != null && (type.BaseType == basePluginType || (type.BaseType.IsGenericType && type.BaseType.GetGenericTypeDefinition() == basePluginType))) { 
+                    if (type.BaseType != null && (type.BaseType == basePluginType || (type.BaseType.IsGenericType && type.BaseType.GetGenericTypeDefinition() == basePluginType)))
+                    {
                         RegisterPlugin(type, metadata, plugins, register);
                     }
                 }
             }
             SortAllLists(register);
         }
-
 
         private void RegisterPlugin(Type basePluginType, Dictionary<string, EntityMetadata> metadata, List<MetaPlugin> plugins, Dictionary<EventOperation, Dictionary<ExecutionStage, List<PluginTrigger>>> register)
         {
@@ -82,7 +81,8 @@ namespace DG.Tools.XrmMockup {
                     .GetMethod("PluginProcessingStepConfigs")
                     .Invoke(plugin, new object[] { })
                     as IEnumerable<Tuple<StepConfig, ExtendedStepConfig, IEnumerable<ImageTuple>>>);
-                pluginExecute = (provider) => {
+                pluginExecute = (provider) =>
+                {
                     basePluginType
                     .GetMethod("Execute")
                     .Invoke(plugin, new object[] { provider });
@@ -96,15 +96,19 @@ namespace DG.Tools.XrmMockup {
                     throw new MockupException($"Unknown plugin '{basePluginType.FullName}', please use DAXIF registration or make sure the plugin is uploaded to CRM.");
                 }
 
-                foreach(var metaStep in metaSteps) { 
-                    var stepConfig = new StepConfig(metaStep.AssemblyName, metaStep.Stage, metaStep.MessageName, metaStep.PrimaryEntity);
+                foreach (var metaStep in metaSteps)
+                {
+                    var stepConfig = new StepConfig(metaStep.StepId, metaStep.AssemblyName, metaStep.Stage, metaStep.MessageName, metaStep.PrimaryEntity);
                     var extendedConfig = new ExtendedStepConfig(0, metaStep.Mode, metaStep.Name, metaStep.Rank, metaStep.FilteredAttributes, Guid.Empty.ToString());
                     var imageTuple = metaStep.Images?.Select(x => new ImageTuple(x.Name, x.EntityAlias, x.ImageType, x.Attributes)).ToList() ?? new List<ImageTuple>();
                     stepConfigs.Add(new Tuple<StepConfig, ExtendedStepConfig, IEnumerable<ImageTuple>>(stepConfig, extendedConfig, imageTuple));
-                    pluginExecute = (provider) => {
-                        basePluginType
-                        .GetMethod("Execute")
-                        .Invoke(plugin, new object[] { provider });
+                    pluginExecute = (provider) =>
+                    {
+                        var baseMethod = typeof(IPlugin)
+                            .GetMethod("Execute");
+
+                        baseMethod
+                            .Invoke(plugin, new object[] { provider });
                     };
                 }
             }
@@ -112,8 +116,8 @@ namespace DG.Tools.XrmMockup {
             // Add discovered plugin triggers
             foreach (var stepConfig in stepConfigs)
             {
-                var operation = (EventOperation)Enum.Parse(typeof(EventOperation), stepConfig.Item1.Item3);
-                var stage = (ExecutionStage)stepConfig.Item1.Item2;
+                var operation = (EventOperation)Enum.Parse(typeof(EventOperation), stepConfig.Item1.Item4);
+                var stage = (ExecutionStage)stepConfig.Item1.Item3;
                 var trigger = new PluginTrigger(operation, stage, pluginExecute, stepConfig, metadata);
 
                 AddTrigger(operation, stage, trigger, register);
@@ -158,8 +162,8 @@ namespace DG.Tools.XrmMockup {
                 // Add discovered plugin triggers
                 foreach (var stepConfig in stepConfigs)
                 {
-                    var operation = (EventOperation)Enum.Parse(typeof(EventOperation), stepConfig.Item1.Item3);
-                    var stage = (ExecutionStage)stepConfig.Item1.Item2;
+                    var operation = (EventOperation)Enum.Parse(typeof(EventOperation), stepConfig.Item1.Item4);
+                    var stage = (ExecutionStage)stepConfig.Item1.Item3;
                     var trigger = new PluginTrigger(operation, stage, pluginExecute, stepConfig, metadata);
 
                     AddTrigger(operation, stage, trigger, register);
@@ -168,11 +172,14 @@ namespace DG.Tools.XrmMockup {
             SortAllLists(register);
         }
 
-        public void AddTrigger(EventOperation operation, ExecutionStage stage, PluginTrigger trigger, Dictionary<EventOperation, Dictionary<ExecutionStage, List<PluginTrigger>>> register) {
-            if (!register.ContainsKey(operation)) {
+        public void AddTrigger(EventOperation operation, ExecutionStage stage, PluginTrigger trigger, Dictionary<EventOperation, Dictionary<ExecutionStage, List<PluginTrigger>>> register)
+        {
+            if (!register.ContainsKey(operation))
+            {
                 register.Add(operation, new Dictionary<ExecutionStage, List<PluginTrigger>>());
             }
-            if (!register[operation].ContainsKey(stage)) {
+            if (!register[operation].ContainsKey(stage))
+            {
                 register[operation].Add(stage, new List<PluginTrigger>());
             }
             register[operation][stage].Add(trigger);
@@ -203,20 +210,19 @@ namespace DG.Tools.XrmMockup {
         /// <param name="pluginContext"></param>
         /// <param name="core"></param>
         public void Trigger(EventOperation operation, ExecutionStage stage,
-                object entity, Entity preImage, Entity postImage, PluginContext pluginContext, Core core) {
-            
+                object entity, Entity preImage, Entity postImage, PluginContext pluginContext, Core core)
+        {
+            //pluginContext.OwningExtension = new EntityReference("sdkmessageprocessingstep", )
             if (!disableRegisteredPlugins && registeredPlugins.ContainsKey(operation) && registeredPlugins[operation].ContainsKey(stage))
                 registeredPlugins[operation][stage].ForEach(p => p.ExecuteIfMatch(entity, preImage, postImage, pluginContext, core));
-            if(temporaryPlugins.ContainsKey(operation) && temporaryPlugins[operation].ContainsKey(stage))
+            if (temporaryPlugins.ContainsKey(operation) && temporaryPlugins[operation].ContainsKey(stage))
                 temporaryPlugins[operation][stage].ForEach(p => p.ExecuteIfMatch(entity, preImage, postImage, pluginContext, core));
         }
-
 
         //Post operation - Trigger Sync and Async in that order
         public void TriggerSync(EventOperation operation, ExecutionStage stage,
                 object entity, Entity preImage, Entity postImage, PluginContext pluginContext, Core core)
         {
-
             if (!disableRegisteredPlugins && registeredPlugins.ContainsKey(operation) && registeredPlugins[operation].ContainsKey(stage))
                 registeredPlugins[operation][stage].Where(p => p.GetExecutionMode() == ExecutionMode.Synchronous)
                     .OrderBy(p => p.GetExecutionOrder()).ToList().ForEach(p => p.ExecuteIfMatch(entity, preImage, postImage, pluginContext, core));
@@ -226,10 +232,10 @@ namespace DG.Tools.XrmMockup {
         }
 
         public void StageAsync(EventOperation operation, ExecutionStage stage,
-                object entity, Entity preImage, Entity postImage, PluginContext pluginContext, Core core) 
+                object entity, Entity preImage, Entity postImage, PluginContext pluginContext, Core core)
         {
             if (!disableRegisteredPlugins && registeredPlugins.ContainsKey(operation) && registeredPlugins[operation].ContainsKey(stage))
-            {   
+            {
                 var asyncExecutors = registeredPlugins[operation][stage].Where(p => p.GetExecutionMode() == ExecutionMode.Asynchronous)
                     .OrderBy(p => p.GetExecutionOrder()).ToList().Select(p => p.ToPluginExecution(entity, preImage, postImage, pluginContext, core));
                 asyncExecutors.ToList().ForEach(x => pendingAsyncPlugins.Enqueue(x));
@@ -244,14 +250,14 @@ namespace DG.Tools.XrmMockup {
 
         public void TriggerAsyncWaitingJobs()
         {
-           while (pendingAsyncPlugins.Count > 0)
+            while (pendingAsyncPlugins.Count > 0)
             {
                 var pendingPlugin = pendingAsyncPlugins.Dequeue();
 
                 if (pendingPlugin != null)
                 {
                     pendingPlugin.ExecuteAction();
-                }                
+                }
             }
         }
 
@@ -264,7 +270,8 @@ namespace DG.Tools.XrmMockup {
             registeredSystemPlugins[operation][stage].ForEach(p => p.ExecuteIfMatch(entity, preImage, postImage, pluginContext, core));
         }
 
-        internal class PluginTrigger : IComparable<PluginTrigger> {
+        internal class PluginTrigger : IComparable<PluginTrigger>
+        {
             public Action<MockupServiceProviderAndFactory> pluginExecute;
 
             string entityName;
@@ -273,21 +280,23 @@ namespace DG.Tools.XrmMockup {
             ExecutionMode mode;
             int order = 0;
             Dictionary<string, EntityMetadata> metadata;
-
+            private Guid stepId;
             HashSet<string> attributes;
             IEnumerable<ImageTuple> images;
 
             public PluginTrigger(EventOperation operation, ExecutionStage stage,
                     Action<MockupServiceProviderAndFactory> pluginExecute, Tuple<StepConfig, ExtendedStepConfig,
-                        IEnumerable<ImageTuple>> stepConfig, Dictionary<string, EntityMetadata> metadata) {
+                        IEnumerable<ImageTuple>> stepConfig, Dictionary<string, EntityMetadata> metadata)
+            {
                 this.pluginExecute = pluginExecute;
-                this.entityName = stepConfig.Item1.Item4;
+                this.entityName = stepConfig.Item1.Item5;
                 this.operation = operation;
                 this.stage = stage;
                 this.mode = (ExecutionMode)stepConfig.Item2.Item2;
                 this.order = stepConfig.Item2.Item4;
                 this.images = stepConfig.Item3;
                 this.metadata = metadata;
+                this.stepId = stepConfig.Item1.Item1;
 
                 var attrs = stepConfig.Item2.Item5 ?? "";
                 this.attributes = String.IsNullOrWhiteSpace(attrs) ? new HashSet<string>() : new HashSet<string>(attrs.Split(','));
@@ -312,17 +321,18 @@ namespace DG.Tools.XrmMockup {
                 var guid = (entity != null) ? entity.Id : entityRef.Id;
                 var logicalName = (entity != null) ? entity.LogicalName : entityRef.LogicalName;
 
-                if (VerifyPluginTrigger(entity,logicalName,guid,preImage,postImage,pluginContext))
+                if (VerifyPluginTrigger(entity, logicalName, guid, preImage, postImage, pluginContext))
                 {
                     // Create the plugin context
                     var thisPluginContext = CreatePluginContext(pluginContext, guid, logicalName, preImage, postImage);
                     return new PluginExecutionProvider(pluginExecute, new MockupServiceProviderAndFactory(core, thisPluginContext, new TracingService()));
                 }
 
-                return null;             
+                return null;
             }
 
-            public void ExecuteIfMatch(object entityObject, Entity preImage, Entity postImage, PluginContext pluginContext, Core core) {
+            public void ExecuteIfMatch(object entityObject, Entity preImage, Entity postImage, PluginContext pluginContext, Core core)
+            {
                 // Check if it is supposed to execute. Returns preemptively, if it should not.
                 var entity = entityObject as Entity;
                 var entityRef = entityObject as EntityReference;
@@ -350,8 +360,8 @@ namespace DG.Tools.XrmMockup {
                         pluginContext.SharedVariables[parameter.Key] = parameter.Value;
                     }
                 }
-            } 
-            
+            }
+
             private void CheckInfiniteLoop(PluginContext pluginContext)
             {
                 if (pluginContext.Depth > 8)
@@ -388,7 +398,7 @@ namespace DG.Tools.XrmMockup {
                 {
                     return true;
                 }
-                
+
                 bool foundAttr = false;
                 foreach (var attr in entity.Attributes)
                 {
@@ -411,7 +421,7 @@ namespace DG.Tools.XrmMockup {
                 }
 
                 CheckInfiniteLoop(pluginContext);
-                entity = AddPostImageAttributesToEntity(entity,preImage,postImage);
+                entity = AddPostImageAttributesToEntity(entity, preImage, postImage);
                 CheckSpecialRequest();
 
                 if (FilteredAttributesMatches(entity))
@@ -421,11 +431,12 @@ namespace DG.Tools.XrmMockup {
                 return false;
             }
 
-            private PluginContext CreatePluginContext(PluginContext pluginContext, Guid guid, string logicalName, Entity preImage,Entity postImage)
+            private PluginContext CreatePluginContext(PluginContext pluginContext, Guid guid, string logicalName, Entity preImage, Entity postImage)
             {
                 var thisPluginContext = pluginContext.Clone();
-                thisPluginContext.Mode = (int) this.mode;
-                thisPluginContext.Stage = (int) this.stage;
+                thisPluginContext.OwningExtension = new EntityReference("sdkmessageprocessingstep", stepId);
+                thisPluginContext.Mode = (int)this.mode;
+                thisPluginContext.Stage = (int)this.stage;
                 if (thisPluginContext.PrimaryEntityId == Guid.Empty)
                 {
                     thisPluginContext.PrimaryEntityId = guid;
@@ -448,7 +459,8 @@ namespace DG.Tools.XrmMockup {
                 return thisPluginContext;
             }
 
-            public int CompareTo(PluginTrigger other) {
+            public int CompareTo(PluginTrigger other)
+            {
                 return this.order.CompareTo(other.order);
             }
         }
