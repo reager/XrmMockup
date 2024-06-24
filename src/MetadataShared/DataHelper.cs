@@ -36,7 +36,7 @@ namespace DG.Tools.XrmMockup.Metadata
                 this.EntityLogicalNames = GetLogicalNames(AssemblyGetter.GetAssembliesInBuildPath());
 
             // Add default entities
-            var defaultEntities = new string[] { "businessunit", "systemuser", "transactioncurrency", "role", "systemuserroles", "teamroles", "activitypointer" };
+            var defaultEntities = new string[] { "businessunit", "systemuser", "transactioncurrency", "role", "systemuserroles", "team", "teamroles", "activitypointer", "roletemplate" };
             foreach (var logicalName in defaultEntities)
             {
                 this.EntityLogicalNames.Add(logicalName);
@@ -52,7 +52,7 @@ namespace DG.Tools.XrmMockup.Metadata
             }
         }
 
-        public MetadataSkeleton GetMetadata(string path)
+        public MetadataSkeleton GetMetadata()
         {
             var skeleton = new MetadataSkeleton();
 
@@ -118,25 +118,77 @@ namespace DG.Tools.XrmMockup.Metadata
 
         private List<MetaPlugin> GetPlugins(string[] solutions)
         {
+            var plugins = new List<MetaPlugin>();
+
             if (solutions == null || solutions.Length == 0)
             {
-                return new List<MetaPlugin>();
+                return plugins;
             }
 
+            var pluginSteps = GetPluginSteps(solutions);
+
+            //get the images
+            var images = GetImages(solutions);
+
+            foreach (var pluginStep in pluginSteps.Entities)
+            {
+                var metaPlugin = new MetaPlugin()
+                {
+                    Name = pluginStep.GetAttributeValue<string>("name"),
+                    Rank = pluginStep.GetAttributeValue<int>("rank"),
+                    FilteredAttributes = pluginStep.GetAttributeValue<string>("filteringattributes"),
+                    Mode = pluginStep.GetAttributeValue<OptionSetValue>("mode").Value,
+                    Stage = pluginStep.GetAttributeValue<OptionSetValue>("stage").Value,
+                    MessageName = pluginStep.GetAttributeValue<EntityReference>("sdkmessageid").Name,
+                    AssemblyName = pluginStep.GetAttributeValue<EntityReference>("eventhandler").Name,
+                    PluginTypeAssemblyName = pluginStep.GetAttributeValue<AliasedValue>("plugintype.assemblyname").Value.ToString(),
+                    ImpersonatingUserId = pluginStep.Contains("impersonatinguserid") ? pluginStep.GetAttributeValue<EntityReference>("impersonatinguserid").Id : (Guid?)null,
+                    PrimaryEntity = pluginStep.GetAttributeValue<AliasedValue>("sdkmessagefilter.primaryobjecttypecode")?.Value as string ?? "",  // In case of AnyEntity use ""
+                    Images = images.Entities
+                        .Where(x => x.GetAttributeValue<EntityReference>("sdkmessageprocessingstepid").Id == pluginStep.Id)
+                        .Select(x => new MetaImage
+                        {
+                            Attributes = x.GetAttributeValue<string>("attributes"),
+                            EntityAlias = x.GetAttributeValue<string>("entityalias"),
+                            ImageType = x.GetAttributeValue<OptionSetValue>("imagetype").Value,
+                            Name = x.GetAttributeValue<string>("name")
+                        })
+                        .ToList()
+                };
+                if (metaPlugin.PrimaryEntity == "none")
+                {
+                    metaPlugin.PrimaryEntity = "";
+                }
+                plugins.Add(metaPlugin);
+            }
+            return plugins;
+        }
+
+        private EntityCollection GetPluginSteps(string[] solutions)
+        {
             var pluginQuery = new QueryExpression("sdkmessageprocessingstep")
             {
-                ColumnSet = new ColumnSet("eventhandler", "stage", "mode", "rank", "sdkmessageid", "filteringattributes", "name"),
-                Criteria = new FilterExpression()
+                ColumnSet = new ColumnSet("eventhandler", "stage", "mode", "rank", "sdkmessageid", "filteringattributes", "name", "impersonatinguserid", "sdkmessageprocessingstepid"),
+                Criteria = new FilterExpression(),
+                Distinct = true,
             };
             pluginQuery.Criteria.AddCondition("statecode", ConditionOperator.Equal, 0);
 
-            var sdkMessageFilterQuery = new LinkEntity("sdkmessageprocessingstep", "sdkmessagefilter", "sdkmessagefilterid", "sdkmessagefilterid", JoinOperator.Inner)
+            var sdkMessageFilterQuery = new LinkEntity("sdkmessageprocessingstep", "sdkmessagefilter", "sdkmessagefilterid", "sdkmessagefilterid", JoinOperator.LeftOuter)
             {
                 Columns = new ColumnSet("primaryobjecttypecode"),
                 EntityAlias = "sdkmessagefilter",
                 LinkCriteria = new FilterExpression()
             };
             pluginQuery.LinkEntities.Add(sdkMessageFilterQuery);
+
+            var pluginTypeFilterQuery = new LinkEntity("sdkmessageprocessingstep", "plugintype", "plugintypeid", "plugintypeid", JoinOperator.LeftOuter)
+            {
+                Columns = new ColumnSet("assemblyname"),
+                EntityAlias = "plugintype",
+                LinkCriteria = new FilterExpression()
+            };
+            pluginQuery.LinkEntities.Add(pluginTypeFilterQuery);
 
             var solutionComponentQuery = new LinkEntity("sdkmessageprocessingstep", "solutioncomponent", "sdkmessageprocessingstepid", "objectid", JoinOperator.Inner)
             {
@@ -153,7 +205,11 @@ namespace DG.Tools.XrmMockup.Metadata
             solutionQuery.LinkCriteria.AddCondition("uniquename", ConditionOperator.In, solutions);
             solutionComponentQuery.LinkEntities.Add(solutionQuery);
 
+            return service.RetrieveMultiple(pluginQuery);
+        }
 
+        private EntityCollection GetImages(string[] solutions)
+        {
             var imagesQuery = new QueryExpression
             {
                 EntityName = "sdkmessageprocessingstepimage",
@@ -186,36 +242,7 @@ namespace DG.Tools.XrmMockup.Metadata
             };
 
             var images = service.RetrieveMultiple(imagesQuery);
-
-            var plugins = new List<MetaPlugin>();
-
-            foreach (var plugin in service.RetrieveMultiple(pluginQuery).Entities)
-            {
-                var metaPlugin = new MetaPlugin()
-                {
-                    Name = plugin.GetAttributeValue<string>("name"),
-                    Rank = plugin.GetAttributeValue<int>("rank"),
-                    FilteredAttributes = plugin.GetAttributeValue<string>("filteringattributes"),
-                    Mode = plugin.GetAttributeValue<OptionSetValue>("mode").Value,
-                    Stage = plugin.GetAttributeValue<OptionSetValue>("stage").Value,
-                    MessageName = plugin.GetAttributeValue<EntityReference>("sdkmessageid").Name,
-                    AssemblyName = plugin.GetAttributeValue<EntityReference>("eventhandler").Name,
-                    PrimaryEntity = plugin.GetAttributeValue<AliasedValue>("sdkmessagefilter.primaryobjecttypecode").Value as string,
-                    Images = images.Entities
-                        .Where(x => x.GetAttributeValue<EntityReference>("sdkmessageprocessingstepid").Id == plugin.Id)
-                        .Select(x => new MetaImage
-                        {
-                            Attributes = x.GetAttributeValue<string>("attributes"),
-                            EntityAlias = x.GetAttributeValue<string>("entityalias"),
-                            ImageType = x.GetAttributeValue<OptionSetValue>("imagetype").Value,
-                            Name = x.GetAttributeValue<string>("name")
-                        })
-                        .ToList()
-                };
-                plugins.Add(metaPlugin);
-            }
-
-            return plugins;
+            return images;
         }
 
         private List<Entity> GetCurrencies()
@@ -240,7 +267,6 @@ namespace DG.Tools.XrmMockup.Metadata
                 .First(e => e.Id.Equals(baseOrganizationId));
         }
 
-
         internal IEnumerable<Entity> GetBusinessUnits()
         {
             var query = new QueryExpression("businessunit")
@@ -249,7 +275,6 @@ namespace DG.Tools.XrmMockup.Metadata
             };
             return service.RetrieveMultiple(query).Entities;
         }
-
 
         private IEnumerable<Guid> GetEntityComponentIdsFromSolution(string solutionName)
         {
@@ -383,7 +408,7 @@ namespace DG.Tools.XrmMockup.Metadata
                 .Select(e => e.ToEntity<Entity>());
         }
 
-        internal Dictionary<Guid, SecurityRole> GetSecurityRoles(Guid rootBUId)
+        internal Dictionary<Guid, SecurityRole> GetSecurityRoles(Guid rootBUId, bool mitigateDuplicateNames)
         {
             // Queries
             var privQuery = new QueryExpression(PRIVILEGE)
@@ -441,9 +466,12 @@ namespace DG.Tools.XrmMockup.Metadata
                 (e.rpr?.roleprivilege?.Contains("roleid")).GetValueOrDefault() &&
                 (e.rpr?.role?.Contains("name")).GetValueOrDefault());
 
+            var roleNameCounters = new Dictionary<string, int>();
+
             foreach (var e in validSecurityRoles)
             {
                 var entityName = (string)e.pp.privilegeOTC["objecttypecode"];
+
                 if (entityName == "none") continue;
 
                 var rp = ToRolePrivilege(e.pp.privilege, e.rpr.roleprivilege);
@@ -451,9 +479,26 @@ namespace DG.Tools.XrmMockup.Metadata
                 var roleId = (Guid)e.rpr.roleprivilege["roleid"];
                 if (!roles.ContainsKey(roleId))
                 {
+                    var name = (string)e.rpr.role["name"];
+
+                    if (mitigateDuplicateNames) {
+                        if (roleNameCounters.TryGetValue(name, out var count))
+                        {
+                            // Role name has been seen before, warn, add and increment counter
+                            Console.WriteLine("*** WARNING: DUPLICATE SECURITY ROLE NAME DETECTED: \"{0}\" ***", name);
+                            Console.WriteLine("*** IF THIS IS NO ON PURPOSE - REACH OUT TO MICROSOFT SUPPORT ***");
+                            name += $"_{++count}";
+                            roleNameCounters[name] = count;
+                        }
+                        else
+                        {
+                            roleNameCounters[name] = 1;
+                        }
+                    }
+
                     roles[roleId] = new SecurityRole()
                     {
-                        Name = (string)e.rpr.role["name"],
+                        Name = name,
                         RoleId = roleId
                     };
 
@@ -470,7 +515,10 @@ namespace DG.Tools.XrmMockup.Metadata
                     roles[roleId].Privileges.Add(entityName, new Dictionary<AccessRights, RolePrivilege>());
                 }
 
-                roles[roleId].Privileges[entityName].Add(rp.AccessRight, rp);
+                if(!roles[roleId].Privileges[entityName].ContainsKey(rp.AccessRight))
+                {
+                    roles[roleId].Privileges[entityName].Add(rp.AccessRight, rp);
+                }                
             }
             return roles;
         }
@@ -603,6 +651,5 @@ namespace DG.Tools.XrmMockup.Metadata
 
             return dict;
         }
-
     }
 }

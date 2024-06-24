@@ -5,10 +5,7 @@ using System.Text;
 using System.Threading.Tasks;
 using Microsoft.Xrm.Sdk;
 using Microsoft.Xrm.Sdk.Query;
-using Microsoft.Xrm.Sdk.Client;
-using System.Reflection;
 using Microsoft.Xrm.Sdk.Messages;
-using Microsoft.Crm.Sdk.Messages;
 using System.ServiceModel;
 
 namespace DG.Tools.XrmMockup {
@@ -61,7 +58,7 @@ namespace DG.Tools.XrmMockup {
         /// <returns></returns>
         public Guid Create(Entity entity) {
             var req = new CreateRequest();
-            req.Target = entity;
+            req.Target = core.GetStronglyTypedEntity(entity, core.GetEntityMetadata(entity.LogicalName), null);
             var resp = SendRequest<CreateResponse>(req);
             return resp.id;
         }
@@ -125,7 +122,7 @@ namespace DG.Tools.XrmMockup {
         /// <param name="entity"></param>
         public void Update(Entity entity) {
             var req = new UpdateRequest();
-            req.Target = entity;
+            req.Target = core.GetStronglyTypedEntity(entity, core.GetEntityMetadata(entity.LogicalName), null);
             SendRequest<UpdateResponse>(req);
         }
 

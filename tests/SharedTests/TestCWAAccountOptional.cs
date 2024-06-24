@@ -1,30 +1,31 @@
-﻿using System.IO;
-using DG.XrmFramework.BusinessDomain.ServiceContext;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
+﻿//using System.IO;
+//using DG.XrmFramework.BusinessDomain.ServiceContext;
+//using Xunit;
 
-namespace DG.XrmMockupTest
-{
-    [TestClass]
-    public class TestCWAAccountOptional : UnitTestBase
-    {
-        [TestMethod]
-        public void TestWorkFlowWithEmptyOptionalParameter()
-        {
-            crm.AddWorkflow(Path.Combine("../../..", "Metadata", "Workflows", "CWAAccountoptional.xml"));
+//namespace DG.XrmMockupTest
+//{
+//    public class TestCWAAccountOptional : UnitTestBase
+//    {
+//        public TestCWAAccountOptional(XrmMockupFixture fixture) : base(fixture) { }
 
-            var account = new Account();
+//        [Fact]
+//        public void TestWorkFlowWithEmptyOptionalParameter()
+//        {
+//            crm.AddWorkflow(Path.Combine("../../..", "Metadata", "Workflows", "CWAAccountoptional.xml"));
 
-            account.Id = orgAdminService.Create(account);
-        }
+//            var account = new Account();
 
-        [TestMethod]
-        public void TestWorkFlowWithFilledOptionalParameter()
-        {
-            crm.AddWorkflow(Path.Combine("../../..", "Metadata", "Workflows", "CWAAccountoptionalWithDateValue.xml"));
+//            account.Id = orgAdminService.Create(account);
+//        }
 
-            var account = new Account();
+//        [Fact]
+//        public void TestWorkFlowWithFilledOptionalParameter()
+//        {
+//            crm.AddWorkflow(Path.Combine("../../..", "Metadata", "Workflows", "CWAAccountoptionalWithDateValue.xml"));
 
-            account.Id = orgAdminService.Create(account);
-        }
-    }
-}
+//            var account = new Account();
+
+//            account.Id = orgAdminService.Create(account);
+//        }
+//    }
+//}

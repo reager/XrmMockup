@@ -55,7 +55,7 @@ namespace DG.Tools.XrmMockup.Metadata {
             var generator = new DataHelper(auth.Authenticate(), ParsedArgs[Arguments.Entities], ParsedArgs[Arguments.Solutions], ParsedArgs.GetAsType<bool>(Arguments.fetchFromAssemblies));
             var outputLocation = ParsedArgs[Arguments.OutDir] ?? Directory.GetCurrentDirectory();
 
-            var skeleton = generator.GetMetadata(AssemblyGetter.GetProjectPath());
+            var skeleton = generator.GetMetadata();
 
             var serializer = new DataContractSerializer(typeof(MetadataSkeleton));
             var workflowSerializer = new DataContractSerializer(typeof(Entity));
@@ -90,7 +90,9 @@ namespace DG.Tools.XrmMockup.Metadata {
                 }
             }
 
-            var securityRoles = generator.GetSecurityRoles(skeleton.RootBusinessUnit.Id);
+            var mitigateDuplicateSecurityRoles = ParsedArgs[Arguments.MitigateDuplicateSecurityRoles] != null;
+            var securityRoles = generator.GetSecurityRoles(skeleton.RootBusinessUnit.Id, mitigateDuplicateSecurityRoles);
+
             foreach (var securityRole in securityRoles) {
                 var safeName = ToSafeName(securityRole.Value.Name);
                 using (var stream = new FileStream($"{securityLocation}/{safeName}.xml", FileMode.Create)) {
@@ -112,6 +114,8 @@ namespace DG.Tools.XrmMockup.Metadata {
                 file.WriteLine("\t}");
                 file.WriteLine("}");
             }
+
+            Console.WriteLine("XrmMockup Metadata was updated successfully");
         }
 
         private static bool StartsWithNumber(string str) {

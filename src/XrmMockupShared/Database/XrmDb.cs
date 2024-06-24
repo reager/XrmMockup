@@ -1,12 +1,13 @@
 ﻿using Microsoft.Xrm.Sdk;
 using System;
 using System.Collections.Generic;
-using System.Text;
 using System.Linq;
 using System.ServiceModel;
 using Microsoft.Xrm.Sdk.Metadata;
 using Microsoft.Xrm.Sdk.Client;
 using Microsoft.Xrm.Sdk.Query;
+using System.Threading;
+using DG.Tools.XrmMockup.Serialization;
 
 namespace DG.Tools.XrmMockup.Database {
 
@@ -14,10 +15,12 @@ namespace DG.Tools.XrmMockup.Database {
         private Dictionary<string, DbTable> TableDict = new Dictionary<string, DbTable>();
         private Dictionary<string, EntityMetadata> EntityMetadata;
         private OrganizationServiceProxy OnlineProxy;
+        private int sequence;
 
         public XrmDb(Dictionary<string, EntityMetadata> entityMetadata, OrganizationServiceProxy onlineProxy) {
             this.EntityMetadata = entityMetadata;
             this.OnlineProxy = onlineProxy;
+            sequence = 0;
         }
 
         public DbTable this[string tableName] {
@@ -32,12 +35,14 @@ namespace DG.Tools.XrmMockup.Database {
             }
         }
 
-        public void Add(Entity xrmEntity, bool withReferenceChecks = true) {
-            var dbEntity = ToDbRow(xrmEntity, withReferenceChecks);
+        public void Add(Entity xrmEntity, bool withReferenceChecks = true) 
+        {
+            int nextSequence = Interlocked.Increment(ref sequence);
+            var dbEntity = ToDbRow(xrmEntity,nextSequence, withReferenceChecks);
             this[dbEntity.Table.TableName][dbEntity.Id] = dbEntity;
         }
 
-        public DbRow ToDbRow(Entity xrmEntity, bool withReferenceChecks = true)
+        public DbRow ToDbRow(Entity xrmEntity, int sequence, bool withReferenceChecks = true)
         {
             var primaryIdKey = this[xrmEntity.LogicalName].Metadata.PrimaryIdAttribute;
             if (!xrmEntity.Attributes.ContainsKey(primaryIdKey))
@@ -46,6 +51,7 @@ namespace DG.Tools.XrmMockup.Database {
             }
 
             var dbEntity = DbRow.FromEntity(xrmEntity, this, withReferenceChecks);
+            dbEntity.Sequence = sequence;
             if (dbEntity.Id != Guid.Empty)
             {
                 if (this[dbEntity.Table.TableName][dbEntity.Id] != null)
@@ -110,12 +116,15 @@ namespace DG.Tools.XrmMockup.Database {
             }
         }
 
-        internal DbRow GetDbRow(EntityReference reference, bool withReferenceCheck = true) {
+        internal DbRow GetDbRow(EntityReference reference, bool withReferenceCheck = true)
+        {
             DbRow currentDbRow = null;
 
-            if (reference?.Id != Guid.Empty) {                
+            if (reference?.Id != Guid.Empty)
+            {
                 currentDbRow = this[reference.LogicalName][reference.Id];
-                if (currentDbRow == null && OnlineProxy != null) {
+                if (currentDbRow == null && OnlineProxy != null)
+                {
                     if (!withReferenceCheck)
                         currentDbRow = DbRow.MakeDBRowRef(reference, this);
                     else
@@ -125,7 +134,8 @@ namespace DG.Tools.XrmMockup.Database {
                         currentDbRow = this[reference.LogicalName][reference.Id];
                     }
                 }
-                if (currentDbRow == null) {
+                if (currentDbRow == null)
+                {
                     throw new FaultException($"The record of type '{reference.LogicalName}' with id '{reference.Id}' " +
                         "does not exist. If you use hard-coded records from CRM, then make sure you create those records before retrieving them.");
                 }
@@ -143,18 +153,17 @@ namespace DG.Tools.XrmMockup.Database {
             }
 #endif
             // No identification given for the entity, throw error
-            else {
+            else
+            {
                 throw new FaultException($"Missing a form of identification for the desired record in order to retrieve it.");
             }
 
             return currentDbRow;
         }
 
-
         internal DbRow GetDbRow(Entity xrmEntity) {
             return GetDbRow(xrmEntity.ToEntityReferenceWithKeyAttributes());
         }
-
 
         internal DbRow GetDbRow(string logicalName, Guid id) {
             return GetDbRow(new EntityReference(logicalName, id));
@@ -168,23 +177,77 @@ namespace DG.Tools.XrmMockup.Database {
             return GetDbRow(reference).ToEntity();
         }
 
-
         #region GetOrNull
-        internal DbRow GetDbRowOrNull(EntityReference reference) {
-            try {
-                return GetDbRow(reference);
-            } catch (Exception) {
+
+        internal bool TryGetDbRow(EntityReference reference, out DbRow dbRow)
+        {
+            DbRow currentDbRow = null;
+            dbRow = null;
+
+            if (reference?.Id != Guid.Empty)
+            {
+                currentDbRow = this[reference.LogicalName][reference.Id];
+                if (currentDbRow == null)
+                {
+                    return false;
+                }
+                else
+                {
+                    dbRow = currentDbRow;
+                    return true;
+                }
+            }
+
+#if !(XRM_MOCKUP_2011 || XRM_MOCKUP_2013 || XRM_MOCKUP_2015)
+            // Try fetching with key attributes if any
+            else if (reference?.KeyAttributes?.Count > 0)
+            {
+                currentDbRow = this[reference.LogicalName].FirstOrDefault(row => reference.KeyAttributes.All(kv => row[kv.Key] == kv.Value));
+
+                if (currentDbRow == null)
+                {
+                    return false;
+                }
+                else
+                {
+                    dbRow = currentDbRow;
+                    return true;
+                }
+            }
+#endif
+            // No identification given for the entity, return false
+            else
+            {
+                return false;
+            }
+        }
+
+        internal DbRow GetDbRowOrNull(EntityReference reference)
+        {
+            DbRow row;
+            if (TryGetDbRow(reference, out row))
+            {
+                return row;
+            }
+            else
+            {
                 return null;
             }
         }
 
-        internal Entity GetEntityOrNull(EntityReference reference) {
-            try {
-                return GetEntity(reference);
-            } catch (Exception) {
+        internal Entity GetEntityOrNull(EntityReference reference)
+        {
+            DbRow row;
+            if (TryGetDbRow(reference, out row))
+            {
+                return row.ToEntity();
+            }
+            else
+            {
                 return null;
             }
         }
+
         #endregion
 
         public XrmDb Clone()
@@ -196,6 +259,34 @@ namespace DG.Tools.XrmMockup.Database {
             };
 
             return clonedDB;
+        }
+        public DbDTO ToSerializableDTO()
+        {
+            var jsonObj = new DbDTO
+            {
+                Tables = this.TableDict.ToDictionary(x => x.Key, x => x.Value.ToSerializableDTO())
+            };
+            return jsonObj;
+        }
+        public static XrmDb RestoreSerializableDTO(XrmDb current, DbDTO model)
+        {
+            var clonedTables = model.Tables.ToDictionary(x => x.Key, x => DbTable.RestoreSerializableDTO(new DbTable(current.EntityMetadata[x.Key]), x.Value));
+            var clonedDB = new XrmDb(current.EntityMetadata, current.OnlineProxy)
+            {
+                TableDict = clonedTables
+            };
+
+            foreach (var table in clonedTables)
+            {
+                table.Value.RestoreFromDTOPostProcess(clonedDB);
+            }
+
+            return clonedDB;
+        }
+
+        internal void ResetTable(string tableName)
+        {
+            TableDict[tableName] = new DbTable(this.EntityMetadata[tableName]);
         }
     }
 }

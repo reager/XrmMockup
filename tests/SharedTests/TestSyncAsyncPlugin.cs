@@ -1,10 +1,9 @@
 ﻿using DG.Some.Namespace.Test;
 using DG.XrmFramework.BusinessDomain.ServiceContext;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Xunit;
 
 namespace DG.XrmMockupTest
 {
-    [TestClass]
     public class TestSyncAsyncPlugin : UnitTestBase
     {
         Account account;
@@ -15,14 +14,13 @@ namespace DG.XrmMockupTest
         string oldFirstName;
         string newFirstName;
 
+        public TestSyncAsyncPlugin(XrmMockupFixture fixture) : base(fixture) { }
         /* Tests for Sync and Async plugins. Relevant plugins can be found in folder "SyncAsyncTest" */
-
-
 
         /*-------------------------------- Order of plugin declaration --------------------------
          * Registration order of plugins should not interfere with execution. Sync should
          * always execute before Async. */
-        [TestMethod]
+        [Fact]
         public void Test4ASyncAndSyncPluginFailsWhenAsyncAppliesFirst()
         {
             //OrderOfPluginDeclaration -> Register ASync first, then Sync 
@@ -38,9 +36,9 @@ namespace DG.XrmMockupTest
                 FirstName = oldFirstName
             };
 
-            var personelId = orgAdminService.Create(personel);
+            personel.Id = orgAdminService.Create(personel);
 
-            var personelUpd = new Contact(personelId)
+            var personelUpd = new Contact(personel.Id)
             {
                 EMailAddress1 = "something@test.dk"
             };
@@ -49,10 +47,10 @@ namespace DG.XrmMockupTest
 
             var retrievedPersonel = Contact.Retrieve(orgAdminService, personel.Id, x => x.FirstName);
 
-            Assert.AreEqual(newFirstName, retrievedPersonel.FirstName);
+            Assert.Equal(newFirstName, retrievedPersonel.FirstName);
         }
 
-        [TestMethod]
+        [Fact]
         public void Test4SyncAndAsyncPluginSucceedsWhenSyncAppliesFirst()
         {
             //OrderOfPluginDeclaration -> Register Sync first, then ASync 
@@ -68,9 +66,9 @@ namespace DG.XrmMockupTest
                 FirstName = oldFirstName
             };
 
-            var personelId = orgAdminService.Create(personel);
+            personel.Id = orgAdminService.Create(personel);
 
-            var personelUpd = new Contact(personelId)
+            var personelUpd = new Contact(personel.Id)
             {
                 EMailAddress1 = "something@test.dk"
             };
@@ -79,12 +77,12 @@ namespace DG.XrmMockupTest
 
             var retrievedPersonel = Contact.Retrieve(orgAdminService, personel.Id, x => x.FirstName);
 
-            Assert.AreEqual(newFirstName, retrievedPersonel.FirstName);
+            Assert.Equal(newFirstName, retrievedPersonel.FirstName);
         }
 
         /* Plugin with lowest executionOrder should execute first. If no order given, it is in order of declaration. 
            Sync however always trigger before ASync */
-        [TestMethod]
+        [Fact]
         public void Test5TwoSyncPluginsLowestExecutionOrderExecutesFirst()
         {
             crm.RegisterAdditionalPlugins(Tools.XrmMockup.PluginRegistrationScope.Temporary,
@@ -99,9 +97,9 @@ namespace DG.XrmMockupTest
                 FirstName = oldFirstName
             };
 
-            var personelId = orgAdminService.Create(personel);
+            personel.Id = orgAdminService.Create(personel);
 
-            var personelUpd = new Contact(personelId)
+            var personelUpd = new Contact(personel.Id)
             {
                 EMailAddress1 = "something@test.dk"
             };
@@ -110,12 +108,12 @@ namespace DG.XrmMockupTest
 
             var retrievedPersonel = Contact.Retrieve(orgAdminService, personel.Id, x => x.FirstName);
 
-            Assert.AreEqual(newFirstName, retrievedPersonel.FirstName);
+            Assert.Equal(newFirstName, retrievedPersonel.FirstName);
         }
 
 
         //Sync Should trigger first regardless of execution order
-        [TestMethod]
+        [Fact]
         public void Test5TwoSyncAndAsyncWithLowerExecutionOrderSucceedsWhenSyncsTriggerFirst()
         {
             crm.RegisterAdditionalPlugins(Tools.XrmMockup.PluginRegistrationScope.Temporary,
@@ -131,9 +129,9 @@ namespace DG.XrmMockupTest
                 FirstName = oldFirstName
             };
 
-            var personelId = orgAdminService.Create(personel);
+            personel.Id = orgAdminService.Create(personel);
 
-            var personelUpd = new Contact(personelId)
+            var personelUpd = new Contact(personel.Id)
             {
                 EMailAddress1 = "something@test.dk"
             };
@@ -142,12 +140,12 @@ namespace DG.XrmMockupTest
 
             var retrievedPersonel = Contact.Retrieve(orgAdminService, personel.Id, x => x.FirstName);
 
-            Assert.AreEqual(newFirstName, retrievedPersonel.FirstName);
+            Assert.Equal(newFirstName, retrievedPersonel.FirstName);
         }
 
 
 
-        [TestMethod]
+        [Fact]
         public void Test6SyncPluginCallsSyncAndAsyncPlugNoExecutionOrder()
         {
             //Sync plugin calls another Sync and Async plugin. Sync executes first.
@@ -164,9 +162,9 @@ namespace DG.XrmMockupTest
                 FirstName = oldFirstName
             };
 
-            var personelId = orgAdminService.Create(personel);
+            personel.Id = orgAdminService.Create(personel);
 
-            var personelUpd = new Contact(personelId)
+            var personelUpd = new Contact(personel.Id)
             {
                 EMailAddress1 = "something@test.dk"
             };
@@ -175,12 +173,12 @@ namespace DG.XrmMockupTest
 
             var retrievedPersonel = Contact.Retrieve(orgAdminService, personel.Id, x => x.FirstName);
 
-            Assert.AreEqual(newFirstName, retrievedPersonel.FirstName);
+            Assert.Equal(newFirstName, retrievedPersonel.FirstName);
         }
 
         //--------------------------------------------- Test plugin execution order --------------------------------------------
 
-        [TestMethod]
+        [Fact]
         public void Test1Sync1Sync2PostPluginSucceedsWhenOnlySync2Applies()
         {
             /* Two Sync plugins trigger of same emailAddress1 change  - the one with the highest execution order is the only one that executes*/
@@ -195,9 +193,9 @@ namespace DG.XrmMockupTest
             {
                 Name = oldAccountName,
             };
-            var accountId = orgAdminService.Create(account);
+            account.Id = orgAdminService.Create(account);
 
-            var accountUpd = new Account(accountId)
+            var accountUpd = new Account(account.Id)
             {
                 EMailAddress1 = "trigger@valid.dk"
             };
@@ -206,10 +204,10 @@ namespace DG.XrmMockupTest
 
             var retrievedAccount = Account.Retrieve(orgAdminService, account.Id, x => x.Name);
 
-            Assert.AreEqual(newAccountName, retrievedAccount.Name);
+            Assert.Equal(newAccountName, retrievedAccount.Name);
         }
 
-        [TestMethod]
+        [Fact]
         public void Test2ASync1ASync2PostPluginSucceedsWhenOnlyASync2Applies()
         {
             /* Same as previous but with Async plugins*/
@@ -224,9 +222,9 @@ namespace DG.XrmMockupTest
             {
                 Name = oldAccountName,
             };
-            var accountId = orgAdminService.Create(account);
+            account.Id = orgAdminService.Create(account);
 
-            var accountUpd = new Account(accountId)
+            var accountUpd = new Account(account.Id)
             {
                 EMailAddress1 = "trigger@valid.dk"
             };
@@ -235,10 +233,10 @@ namespace DG.XrmMockupTest
 
             var retrievedAccount = Account.Retrieve(orgAdminService, account.Id, x => x.Name);
 
-            Assert.AreEqual(newAccountName, retrievedAccount.Name);
+            Assert.Equal(newAccountName, retrievedAccount.Name);
         }
 
-        [TestMethod]
+        [Fact]
         public void Test3Sync1AndAsync2PostPluginSucceedsWhenOnlyAsync2Applies()
         {
             /* Sync and Async trigger of same emailAddress1 update - Only Async applies Since it is executed last and does not use the postimage of the sync Operation */
@@ -254,9 +252,9 @@ namespace DG.XrmMockupTest
             {
                 Name = oldAccountName,
             };
-            var accountId = orgAdminService.Create(account);
+            account.Id = orgAdminService.Create(account);
 
-            var accountUpd = new Account(accountId)
+            var accountUpd = new Account(account.Id)
             {
                 EMailAddress1 = "trigger@valid.dk"
             };
@@ -265,10 +263,10 @@ namespace DG.XrmMockupTest
 
             var retrievedAccount = Account.Retrieve(orgAdminService, account.Id, x => x.Name);
 
-            Assert.AreEqual(newAccountName, retrievedAccount.Name);
+            Assert.Equal(newAccountName, retrievedAccount.Name);
         }
 
-        [TestMethod]
+        [Fact]
         public void Test7Sync1TriggersAsync2Sync3PostPluginSucceedsWhenSync1AndAsync2Applies()
         {
             crm.RegisterAdditionalPlugins(Tools.XrmMockup.PluginRegistrationScope.Temporary,
@@ -283,9 +281,9 @@ namespace DG.XrmMockupTest
             {
                 Name = oldAccountName,
             };
-            var accountId = orgAdminService.Create(account);
+            account.Id = orgAdminService.Create(account);
 
-            var accountUpd = new Account(accountId)
+            var accountUpd = new Account(account.Id)
             {
                 EMailAddress1 = "trigger@valid.dk"
             };
@@ -294,11 +292,11 @@ namespace DG.XrmMockupTest
 
             var retrievedAccount = Account.Retrieve(orgAdminService, account.Id, x => x.Name);
 
-            Assert.AreEqual(newAccountName, retrievedAccount.Name);
+            Assert.Equal(newAccountName, retrievedAccount.Name);
         }
 
 
-        [TestMethod]
+        [Fact]
         public void Test8Async2Sync1TriggersSync3SucceedsWhenAsync2Applies()
         {
             crm.RegisterAdditionalPlugins(Tools.XrmMockup.PluginRegistrationScope.Temporary,
@@ -313,9 +311,9 @@ namespace DG.XrmMockupTest
             {
                 Name = oldAccountName,
             };
-            var accountId = orgAdminService.Create(account);
+            account.Id = orgAdminService.Create(account);
 
-            var accountUpd = new Account(accountId)
+            var accountUpd = new Account(account.Id)
             {
                 EMailAddress1 = "trigger@valid.dk"
             };
@@ -324,7 +322,7 @@ namespace DG.XrmMockupTest
 
             var retrievedAccount = Account.Retrieve(orgAdminService, account.Id, x => x.Name);
 
-            Assert.AreEqual(newAccountName, retrievedAccount.Name);
+            Assert.Equal(newAccountName, retrievedAccount.Name);
         }
     }
 }

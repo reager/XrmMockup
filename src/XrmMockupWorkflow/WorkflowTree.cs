@@ -390,7 +390,7 @@ namespace WorkflowExecuter
         }
 
         public void Execute(ref Dictionary<string, object> variables, TimeSpan timeOffset,
-            IOrganizationService orgService, IOrganizationServiceFactory factory, ITracingService trace)
+    IOrganizationService orgService, IOrganizationServiceFactory factory, ITracingService trace)
         {
             var var1 = variables[Parameters[0][0]];
             var var2 = variables[Parameters[0][1]];
@@ -424,25 +424,27 @@ namespace WorkflowExecuter
                 return;
             }
 
-            if (var1 == null || var2 == null)
+            if (TargetType == "XrmTimeSpan")
             {
-                variables[VariableName] = null;
-                return;
+                if (var1 == null || var2 == null)
+                {
+                    variables[VariableName] = null;
+                    return;
+                }
             }
-
             if (TargetType == "DateTime")
             {
-                if (var2 is XrmTimeSpan)
+                if (var2 is XrmTimeSpan span)
                 {
                     if (Method == "Add")
                     {
-                        variables[VariableName] = ((DateTime)var1).AddXrmTimeSpan((XrmTimeSpan)var2);
+                        variables[VariableName] = ((DateTime)var1).AddXrmTimeSpan(span);
                         return;
                     }
 
                     if (Method == "Subtract")
                     {
-                        variables[VariableName] = ((DateTime)var1).SubtractXrmTimeSpan((XrmTimeSpan)var2);
+                        variables[VariableName] = ((DateTime)var1).SubtractXrmTimeSpan(span);
                         return;
                     }
                 }
@@ -452,19 +454,31 @@ namespace WorkflowExecuter
             decimal? dec1 = null;
             decimal? dec2 = null;
 
+            if (var1 == null && var2 == null)
+            {
+                variables[VariableName] = null;
+                return;
+            }
+
             switch (TargetType)
             {
                 case "Money":
-                    dec1 = var1 is Money ? (var1 as Money).Value : (decimal)var1;
-                    dec2 = var2 is Money ? (var2 as Money).Value : (decimal)var2;
+                    dec1 =
+                        var1 == null ? 0 :
+                        var1 is Money ? (var1 as Money).Value : 
+                        (decimal)var1;
+                    dec2 = 
+                        var2 == null ? 0 :
+                        var2 is Money ? (var2 as Money).Value : 
+                        (decimal)var2;
                     break;
                 case "Int32":
-                    dec1 = (int)var1;
-                    dec2 = (int)var2;
+                    dec1 = var1 == null ? 0 : (int)var1;
+                    dec2 = var2 == null ? 0 : (int)var2;
                     break;
                 case "Decimal":
-                    dec1 = (decimal)var1;
-                    dec2 = (decimal)var2;
+                    dec1 = var1 == null ? 0 : Convert.ToDecimal(var1);
+                    dec2 = var2 == null ? 0 : Convert.ToDecimal(var2);
                     break;
                 default:
                     break;
@@ -968,47 +982,20 @@ namespace WorkflowExecuter
                 variables[VariableName] = null;
                 return;
             }
+
             var attr = entity.Attributes[Attribute];
             if (TargetType == "EntityReference")
             {
-                if (attr is Guid)
+                if (attr is Guid guid)
                 {
-                    attr = new EntityReference(EntityLogicalName, (Guid)attr);
+                    attr = new EntityReference(EntityLogicalName, guid);
                 }
                 else if (!(attr is EntityReference))
                 {
                     throw new InvalidCastException($"Cannot convert {attr.GetType().Name} to {TargetType}");
                 }
             }
-            if (TargetType == "String")
-            {
-                if (attr is OptionSetValue)
-                {
-                    attr = Util.GetOptionSetValueLabel(entity.LogicalName, Attribute, attr as OptionSetValue, orgService);
-                }
-                else if (attr is bool)
-                {
-                    attr = Util.GetBooleanLabel(entity.LogicalName, Attribute, (bool)attr, orgService);
-                }
-                else if (attr is EntityReference)
-                {
-                    attr = Util.GetPrimaryName(attr as EntityReference, orgService);
-                }
-                else if (attr is Money)
-                {
-                    // TODO: should respect record currency and user format preferences
-                    attr = $"{(attr as Money).Value:C}";
-                }
-                else if (attr is int)
-                {
-                    // TODO: should respect user format preferences
-                    attr = $"{((int)attr):N0}";
-                }
-                else if (attr != null && !(attr is string))
-                {
-                    throw new InvalidCastException($"Cannot convert {attr.GetType().Name} to {TargetType}");
-                }
-            }
+
             variables[VariableName] = attr;
         }
     }
@@ -1301,8 +1288,32 @@ namespace WorkflowExecuter
             if (Value.Contains(".Id"))
             {
                 var toEntity = variables[To.Replace(".Id", "")] as Entity;
-                var valueEntity = variables[Value.Replace(".Id", "")] as Entity;
-                toEntity.Id = valueEntity.Id;
+
+                if (Value.Contains("related_"))
+                {
+                    var regex = new Regex(@"_.+#");
+                    var relatedAttr = regex.Match(Value).Value.TrimEdge();
+                    var primaryEntity = variables["InputEntities(\"primaryEntity\")"] as Entity;
+                    if (!primaryEntity.Attributes.ContainsKey(relatedAttr))
+                    {
+                        // variables[VariableName] = null;
+                        return;
+                    }
+                    var entRef = primaryEntity.Attributes[relatedAttr] as EntityReference;
+                    if (entRef == null)
+                    {
+                        //  variables[VariableName] = null;
+                        return;
+                    }
+                    var entity = orgService.Retrieve(entRef.LogicalName, entRef.Id, new ColumnSet(true));
+                    toEntity.Id = entity.Id;
+                }
+                else
+                {
+                    var valueEntity = variables[Value.Replace(".Id", "")] as Entity;
+                    toEntity.Id = valueEntity.Id;
+                }
+
                 return;
             }
 
@@ -1421,13 +1432,19 @@ namespace WorkflowExecuter
         [DataMember]
         public string EntityId { get; private set; }
         [DataMember]
+        public string EntityLogicalName { get; private set; }
+        [DataMember]
         public string VariableId { get; private set; }
+        [DataMember]
+        public string TargetType { get; private set; }
 
-        public SetEntityProperty(string Attribute, string ParametersId, string VariableId)
+        public SetEntityProperty(string Attribute, string ParametersId, string EntityLogicalName, string VariableId, string TargetType)
         {
             this.Attribute = Attribute;
             this.EntityId = ParametersId;
+            this.EntityLogicalName = EntityLogicalName;
             this.VariableId = VariableId;
+            this.TargetType = TargetType;
         }
 
         public void Execute(ref Dictionary<string, object> variables, TimeSpan timeOffset,
@@ -1438,13 +1455,62 @@ namespace WorkflowExecuter
                 Console.WriteLine($"The attribute '{Attribute}' was not created with id '{VariableId}' before being set");
                 variables[VariableId] = null;
             }
+
             var attr = variables[VariableId];
-            if (attr is Money)
+            if (attr is Money money)
             {
                 var exchangeRate = variables["ExchangeRate"] as decimal?;
-                var amount = (attr as Money).Value * exchangeRate.GetValueOrDefault(1.0m);
+                var amount = money.Value * exchangeRate.GetValueOrDefault(1.0m);
                 attr = new Money(amount);
             }
+
+            if (TargetType == "EntityReference")
+            {
+                if (attr is Guid guid)
+                {
+                    attr = new EntityReference(EntityLogicalName, guid);
+                }
+                else if (!(attr is EntityReference))
+                {
+                    throw new InvalidCastException($"Cannot convert {attr.GetType().Name} to {TargetType}");
+                }
+            }
+
+            if (TargetType == "String")
+            {
+                if (attr is OptionSetValue value)
+                {
+                    attr = Util.GetOptionSetValueLabel(EntityLogicalName, Attribute, value, orgService);
+                }
+                else if (attr is bool boolVal)
+                {
+                    attr = Util.GetBooleanLabel(EntityLogicalName, Attribute, boolVal, orgService);
+                }
+                else if (attr is EntityReference reference)
+                {
+                    attr = Util.GetPrimaryName(reference, orgService);
+                }
+                else if (attr is Money moneyTarget)
+                {
+                    // TODO: should respect record currency and user format preferences
+                    attr = $"{moneyTarget?.Value:C}";
+                }
+                else if (attr is int number)
+                {
+                    // TODO: should respect user format preferences
+                    attr = $"{number:N0}";
+                }
+                else if (attr is DateTime time)
+                {
+                    // TODO: what format does CRM do?
+                    attr = $"{time:g}";
+                }
+                else if (attr != null && !(attr is string))
+                {
+                    throw new InvalidCastException($"Cannot convert {attr.GetType().Name} to {TargetType}");
+                }
+            }
+
             (variables[EntityId] as Entity).Attributes[Attribute] = attr;
         }
     }
@@ -1824,7 +1890,6 @@ namespace WorkflowExecuter
             }
         }
     }
-
 
     [DataContract]
     internal class SendEmail : IWorkflowNode

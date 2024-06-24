@@ -12,6 +12,7 @@ using System.Xml;
 using System.Web.Script.Serialization;
 using System.Collections.ObjectModel;
 using System.Runtime.CompilerServices;
+using Microsoft.Xrm.Sdk.Discovery;
 
 [assembly: InternalsVisibleTo("XrmMockup11Test")]
 namespace DG.Tools.XrmMockup {
@@ -24,10 +25,11 @@ namespace DG.Tools.XrmMockup {
         private static Dictionary<XrmMockupSettings, XrmMockup2011> instances = new Dictionary<XrmMockupSettings, XrmMockup2011>();
 
 
-        private XrmMockup2011(XrmMockupSettings Settings) 
-            : base(Settings) {
+        private XrmMockup2011(XrmMockupSettings Settings, MetadataSkeleton metadata = null, List<Entity> workflows = null, List<SecurityRole> securityRoles = null) :
+            base(Settings, metadata, workflows, securityRoles)
+        {
         }
-        
+
         /// <summary>
         /// Gets an instance of XrmMockup2011
         /// </summary>
@@ -36,10 +38,23 @@ namespace DG.Tools.XrmMockup {
             if (instances.ContainsKey(Settings)) {
                 return instances[Settings];
             }
-
+            
             var instance = new XrmMockup2011(Settings);
             instances[Settings] = instance;
             return instance;
+        }
+
+        /// <summary>
+        /// Gets an instance of XrmMockup2011 using the same metadata as the provided
+        /// </summary>
+        /// <param name="xrmMockup">The existing instance to copy</param>
+        /// <param name="settings">
+        ///     If provided, will override the settings from the existing instance.<br/>
+        ///     <em>NOTE: Changing <see cref="XrmMockupSettings.MetadataDirectoryPath"/> will not trigger a reload</em>
+        /// </param>
+        public static XrmMockup2011 GetInstance(XrmMockup2011 xrmMockup, XrmMockupSettings settings = null)
+        {
+            return new XrmMockup2011(settings ?? xrmMockup.Settings, xrmMockup.Metadata, xrmMockup.Workflows, xrmMockup.SecurityRoles);
         }
     }
 

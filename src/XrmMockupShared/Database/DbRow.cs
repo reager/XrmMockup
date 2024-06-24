@@ -1,12 +1,13 @@
-﻿using Microsoft.Xrm.Sdk;
+﻿using DG.Tools.XrmMockup.Serialization;
+using Microsoft.Xrm.Sdk;
 using Microsoft.Xrm.Sdk.Metadata;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
-using System.Text;
 
-namespace DG.Tools.XrmMockup.Database {
+namespace DG.Tools.XrmMockup.Database
+{
 
     [DebuggerDisplay("{DebuggerDisplay,nq}")]
     internal class DbRow {
@@ -14,6 +15,8 @@ namespace DG.Tools.XrmMockup.Database {
         public DbTable Table { get; }
         public Guid Id { get; set; }
         public bool IsDeleted { get; private set; } = false;
+
+        public int Sequence { get; set; }
 
         private Dictionary<string, object> Columns = new Dictionary<string, object>();
 #if !(XRM_MOCKUP_2011 || XRM_MOCKUP_2013 || XRM_MOCKUP_2015)
@@ -99,7 +102,6 @@ namespace DG.Tools.XrmMockup.Database {
             foreach (var column in columns) this[column.Key] = column.Value;
         }
 
-
         private void PruneDeletedReferences() {
             foreach (var key in Columns.Keys.ToList()) {
                 if (Columns[key] is DbRow related && related.IsDeleted) Columns.Remove(key);
@@ -163,7 +165,12 @@ namespace DG.Tools.XrmMockup.Database {
                     .Select(e => db.GetDbRow(e))
                     .ToArray();
             }
-
+#if XRM_MOCKUP_365
+            if (value is OptionSetValueCollection optionsets)
+            {
+                return new OptionSetValueCollection(optionsets);
+            }
+#endif
             return value;
         }
 
@@ -201,6 +208,41 @@ namespace DG.Tools.XrmMockup.Database {
                 IsDeleted = this.IsDeleted
             };
             return clonedDBRow;
+        }
+        public TableRowDTO ToSerializableDTO()
+        {
+            var jsonObj = new TableRowDTO
+            {
+                Id = this.Id,
+                IsDeleted = this.IsDeleted,
+                Columns = this.Columns.ToDictionary(x => x.Key, x => Utility.ConvertValueToSerializableDTO(x.Value))
+            };
+            return jsonObj;
+        }
+
+        public static DbRow RestoreSerializableDTO(DbTable table, TableRowDTO model)
+        {
+            var clonedColumns = model.Columns.ToDictionary(x => x.Key, x => Utility.ConvertValueFromSerializableDTO(x.Value));
+            var clonedDBRow = new DbRow(table, model.Id, clonedColumns)
+            {
+                IsDeleted = model.IsDeleted
+            };
+            return clonedDBRow;
+        }
+
+        internal void RestoreFromDTOPostProcess(XrmDb clonedDB)
+        {
+            //Since there is no guarantee that data is recreated in a usefull order, we have to set the db row in a postprocess step.
+            var keyesToIterate = new List<string>(this.Columns.Keys);
+            foreach (var columnKey in keyesToIterate)
+            {
+                if (this.Columns[columnKey] is DbRow)
+                {
+                    var tmpRef = (DbRow)this.Columns[columnKey];
+                    var dbRow = clonedDB[tmpRef.Metadata.LogicalName][tmpRef.Id];
+                    this.Columns[columnKey] = dbRow;
+                }
+            }
         }
     }
 }

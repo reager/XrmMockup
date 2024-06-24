@@ -133,7 +133,14 @@ namespace WorkflowExecuter
                 {
                     if (variable.Default != null)
                     {
-                        nodes.Add(new CreateVariable(new object[][] { new object[] { "", variable.Default } }, variable.Type.Split(':')[1], variable.Name));
+                        if (variable.Type.StartsWith("scg:Dictionary"))
+                        {
+                            nodes.Add(new CreateVariable(new object[][] { new object[] { "", variable.Default } }, variable.Type.Replace("scg:",""), variable.Name));
+                        }
+                        else
+                        {
+                            nodes.Add(new CreateVariable(new object[][] { new object[] { "", variable.Default } }, variable.Type.Split(':')[1], variable.Name));
+                        }
                     }
                     else if (variable.DefaultList != null)
                     {
@@ -320,16 +327,21 @@ namespace WorkflowExecuter
         }
 
         private static IWorkflowNode CompressSetEntityProperty(WorkflowParser.SetEntityProperty setEntityProperty)
-        {
-            return new SetEntityProperty(setEntityProperty.Attribute, setEntityProperty.Entity.TrimEdge(), setEntityProperty.Value.TrimEdge());
+{
+            var targetTypeArg = setEntityProperty.InArguments?.First(a => a.ReferenceLiteral != null);
+            var targetType = targetTypeArg?.ReferenceLiteral?.Value?.Split(':')[1];
+
+            return new SetEntityProperty(setEntityProperty.Attribute, setEntityProperty.Entity.TrimEdge(), setEntityProperty.EntityName,
+                setEntityProperty.Value.TrimEdge(), targetType);
         }
 
         private static IWorkflowNode CompressGetEntityProperty(WorkflowParser.GetEntityProperty getEntityProperty)
         {
-            var targetType = getEntityProperty.InArguments?.First(a => a.ReferenceLiteral != null);
+            var targetTypeArg = getEntityProperty.InArguments?.First(a => a.ReferenceLiteral != null);
+            var targetType = targetTypeArg?.ReferenceLiteral?.Value?.Split(':')[1];
 
             return new GetEntityProperty(getEntityProperty.Attribute, getEntityProperty.Entity.TrimEdge(), getEntityProperty.EntityName,
-                getEntityProperty.Value.TrimEdge(), targetType?.ReferenceLiteral?.Value?.Split(':')[1]);
+                getEntityProperty.Value.TrimEdge(), targetType);
         }
 
         private static IWorkflowNode CompressTerminateWorkflow(WorkflowParser.TerminateWorkflow terminateWorkflow)

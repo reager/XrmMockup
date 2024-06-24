@@ -8,7 +8,8 @@ using Microsoft.Xrm.Sdk.Metadata;
 using Microsoft.Xrm.Sdk.Query;
 using Microsoft.Crm.Sdk.Messages;
 using System.IO;
-using System.Runtime.CompilerServices;
+using System.Diagnostics;
+using System.Collections.ObjectModel;
 
 namespace DG.Tools.XrmMockup
 {
@@ -17,7 +18,7 @@ namespace DG.Tools.XrmMockup
     /// <summary>
     /// A Mockup of a CRM instance
     /// </summary>
-    public abstract class XrmMockupBase {
+    public abstract partial class XrmMockupBase {
 
         /// <summary>
         /// AdminUser for the Mockup instance
@@ -51,28 +52,50 @@ namespace DG.Tools.XrmMockup
         private Core Core;
         private MockupServiceProviderAndFactory ServiceFactory;
 
+        private readonly Dictionary<string, long> timers;
+        public IReadOnlyDictionary<string, long> Timers => new ReadOnlyDictionary<string, long>(timers);
+
+        protected XrmMockupSettings Settings { get; }
+        protected MetadataSkeleton Metadata { get; }
+        protected List<Entity> Workflows { get; }
+        protected List<SecurityRole> SecurityRoles { get; }
 
         /// <summary>
         /// Create a new XrmMockup instance
         /// </summary>
-        /// <param name="settings"></param>
-        protected XrmMockupBase(XrmMockupSettings settings) {
+        protected XrmMockupBase(XrmMockupSettings settings, MetadataSkeleton metadata = null, List<Entity> workflows = null, List<SecurityRole> securityRoles = null) {
+            timers = new Dictionary<string, long>();
+            Settings = settings;
 
-            var metadataDirectory = "../../Metadata/";
-            if (settings.MetadataDirectoryPath != null)
-                metadataDirectory = settings.MetadataDirectoryPath;
-            MetadataSkeleton metadata = Utility.GetMetadata(metadataDirectory);
+            Stopwatch stopwatch = Stopwatch.StartNew();
+            var metadataDirectory = settings.MetadataDirectoryPath ?? "../../Metadata/";
+            Metadata = metadata ?? Utility.GetMetadata(metadataDirectory);
+            timers[nameof(Utility.GetMetadata)] = stopwatch.ElapsedMilliseconds;
 
-            List<Entity> workflows = Utility.GetWorkflows(metadataDirectory);
-            List<SecurityRole> securityRoles = Utility.GetSecurityRoles(metadataDirectory);
+            stopwatch.Restart();
+            Workflows = workflows ?? Utility.GetWorkflows(metadataDirectory);
+            timers[nameof(Utility.GetWorkflows)] = stopwatch.ElapsedMilliseconds;
 
-            this.Core = new Core(settings, metadata, workflows, securityRoles);
-            this.ServiceFactory = new MockupServiceProviderAndFactory(this.Core);
+            stopwatch.Restart();
+            SecurityRoles = securityRoles ?? Utility.GetSecurityRoles(metadataDirectory);
+            timers[nameof(Utility.GetSecurityRoles)] = stopwatch.ElapsedMilliseconds;
+
+            stopwatch.Restart();
+            Core = new Core(settings, Metadata, Workflows, SecurityRoles);
+            timers[nameof(Core)] = stopwatch.ElapsedMilliseconds;
+
+            stopwatch.Restart();
+            ServiceFactory = new MockupServiceProviderAndFactory(Core);
+            timers[nameof(ServiceFactory)] = stopwatch.ElapsedMilliseconds;
+
             if (settings.EnableProxyTypes == true) {
+                stopwatch.Restart();
                 EnableProxyTypes();
+                timers[nameof(EnableProxyTypes)] = stopwatch.ElapsedMilliseconds;
             }
-        }
 
+            stopwatch.Stop();
+        }
 
         /// <summary>
         /// Enable early-bound types from the given context
@@ -98,7 +121,7 @@ namespace DG.Tools.XrmMockup
             string path = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
             foreach (string dll in Directory.GetFiles(path, "*.dll"))
             {
-                var asm = Assembly.LoadFile(dll);
+                var asm = Assembly.LoadFrom(dll);
                 if (addedAssemblies.Contains(asm.FullName)) continue;
 
                 assemblies.Add(asm);
@@ -218,42 +241,6 @@ namespace DG.Tools.XrmMockup
         /// <param name="entities"></param>
         public void PopulateWith(params Entity[] entities) {
             Core.PopulateWith(entities);
-        }
-
-        /// <summary>
-        /// Gets a system administrator organization service
-        /// </summary>
-        /// <returns></returns>
-        public IOrganizationService GetAdminService() {
-            return ServiceFactory.CreateAdminOrganizationService();
-        }
-
-        /// <summary>
-        /// Gets a system administrator organization service, with the given settings
-        /// </summary>
-        /// <param name="Settings"></param>
-        /// <returns></returns>
-        public IOrganizationService GetAdminService(MockupServiceSettings Settings) {
-            return ServiceFactory.CreateAdminOrganizationService(Settings);
-        }
-
-        /// <summary>
-        /// Create an organization service for the systemuser with the given id
-        /// </summary>
-        /// <param name="userId"></param>
-        /// <returns></returns>
-        public IOrganizationService CreateOrganizationService(Guid userId) {
-            return ServiceFactory.CreateOrganizationService(userId);
-        }
-
-        /// <summary>
-        /// Create an organization service, with the given settings, for the systemuser with the given id
-        /// </summary>
-        /// <param name="userId"></param>
-        /// <param name="settings"></param>
-        /// <returns></returns>
-        public IOrganizationService CreateOrganizationService(Guid userId, MockupServiceSettings settings) {
-            return ServiceFactory.CreateOrganizationService(userId, settings);
         }
 
         /// <summary>
@@ -382,6 +369,26 @@ namespace DG.Tools.XrmMockup
         }
 
         /// <summary>
+        /// Takes a snapshot of the XrmMockup database data and saves it zip compressed
+        /// </summary>
+        /// <param name="filename">Filename used for the ZIP archive. Extenstion will be replaced with .zip</param>
+        public void TakeZipSnapshot(string filename)
+        {
+            var json = Core.TakeJsonSnapshot();
+            Utility.ZipCompressString(filename, json);
+        }
+
+        /// <summary>
+        /// Retore the XrmMockup database data from json data saved in a zip archive
+        /// </summary>
+        /// <param name="filename">Filename of the ZIP archive to be restored</param>
+        public void RestoreZipSnapshot(string filename)
+        {
+            var json = Utility.ZipUncompressString(filename);
+            Core.RestoreJsonSnapshot(json);
+        }
+
+        /// <summary>
         /// Delete a stored snapshot
         /// </summary>
         /// <param name="snapshotName"></param>
@@ -440,6 +447,24 @@ namespace DG.Tools.XrmMockup
         internal void AddPrivileges(EntityReference principleRef, Dictionary<string, Dictionary<AccessRights, PrivilegeDepth>> privileges)
         {
             Core.AddPrivileges(principleRef, privileges);
+        }
+
+        public SecurityRole GetSecurityRole(string roleName)
+        {
+            return Core.GetSecurityRole(roleName);
+        }
+        public SecurityRole CloneSecurityRole(string roleName)
+        {
+            return Core.GetSecurityRole(roleName).Clone();
+        }
+        public void AddSecurityRole(SecurityRole role)
+        {
+            Core.AddSecurityRole(role);
+        }
+
+        public void ResetTable(string tableName)
+        {
+            Core.ResetTable(tableName);
         }
     }
 }
